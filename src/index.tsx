@@ -30,7 +30,6 @@ import {
 } from "./core/session.js";
 import { loadHooksFromConfig, executeHooks } from "./core/hooks.js";
 import {
-  loadSkills,
   listSkills,
   getSkill,
   preprocessSkillContent,
@@ -39,13 +38,19 @@ import {
 } from "./core/skills.js";
 import { loadAgents } from "./core/agents.js";
 import { uuid, timestamp } from "./utils.js";
-import { createCommandRegistry } from "./commands/index.js";
-import type { CommandContext } from "./core/commands.js";
+import { CommandRegistry, type CommandContext } from "./core/commands.js";
+import { createHelpCommand } from "./commands/help.js";
 import { FileChangeTracker } from "./core/file-tracker.js";
 import { getFileHistory } from "./core/file-history.js";
 import { getSuggestions } from "./core/suggestions.js";
 import { initializeMcpServers, disconnectMcpServers } from "./core/mcp/index.js";
 import { getPluginManager } from "./core/plugins/index.js";
+import {
+  corePromptPlugin,
+  memoryPlugin,
+  commandsPlugin,
+  skillsPlugin,
+} from "./plugins/index.js";
 import { isImagePath, loadImageAsBlock, detectImagePaths } from "./core/image.js";
 import { readFile } from "fs/promises";
 import { App, type AppHandle } from "./ui/components/app.js";
@@ -477,12 +482,27 @@ async function main(): Promise<void> {
 
   const permissionMode = resolvePermissionMode(opts.permissionMode);
 
+  // ── Plugin initialization ────────────────────────────────────────
+  const pluginManager = getPluginManager();
+  pluginManager.setCwd(cwd);
+
+  // Register built-in plugins
+  pluginManager.registerBuiltin(corePromptPlugin);
+  pluginManager.registerBuiltin(memoryPlugin);
+  pluginManager.registerBuiltin(commandsPlugin);
+  pluginManager.registerBuiltin(skillsPlugin);
+
+  // Discover external (legacy) plugins
+  await pluginManager.discoverExternal();
+
+  // Core lifecycle: hooks and agents (stay as core, not plugins)
   await loadHooksFromConfig(cwd);
-  await loadSkills(cwd);
   await loadAgents(cwd);
 
-  const pluginManager = getPluginManager();
+  // Initialize all plugins (skills loaded here via skills-plugin)
   await pluginManager.init();
+
+  // Register plugin-provided tools into the tool registry
   for (const tool of pluginManager.getTools()) {
     registry.register(tool);
   }
@@ -497,7 +517,7 @@ async function main(): Promise<void> {
 
   const systemPrompt: SystemPrompt = opts.systemPrompt
     ? [{ text: opts.systemPrompt, cacheHint: false }]
-    : await buildSystemPrompt(cwd, registry.getAll().map((t) => t.name));
+    : await buildSystemPrompt(cwd, registry.getAll().map((t) => t.name), pluginManager);
 
   const costTracker = new CostTracker();
   const fileTracker = new FileChangeTracker();
@@ -546,7 +566,13 @@ async function main(): Promise<void> {
     : createPipePermissionPrompt();
   const permissionPrompt = createPermissionWrapper(permissionMode, basePermissionPrompt, projectPermissions);
 
-  const commandRegistry = createCommandRegistry();
+  // Build command registry from plugin-provided commands + help
+  const commandRegistry = new CommandRegistry();
+  for (const cmd of pluginManager.getCommands()) {
+    commandRegistry.register(cmd);
+  }
+  // Help must be last — it needs the registry to list all commands
+  commandRegistry.register(createHelpCommand(commandRegistry));
 
   // ── One-shot / pipe mode — use legacy rendering ──────────────────
 
@@ -781,6 +807,9 @@ async function main(): Promise<void> {
         type: "user",
       },
     });
+
+    // Yield a tick so Ink renders the frozen user input before any command output
+    await new Promise((r) => setTimeout(r, 0));
 
     // Handle slash commands
     if (trimmed.startsWith("/")) {

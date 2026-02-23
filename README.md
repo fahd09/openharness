@@ -40,7 +40,7 @@ A lightweight, extensible AI-powered coding assistant CLI written in TypeScript.
 - **Custom agents** — Define domain-specific agents via markdown files with tool restrictions, memory, and scoped hooks
 - **Skills system** — Custom reusable commands via markdown files with `$ARGUMENTS` substitution, `!`command`` preprocessing, fork context, and once-per-session support
 - **MCP integration** — Connect to Model Context Protocol servers (stdio + SSE transports)
-- **Plugin system** — Installable plugins with custom tools and hooks
+- **Plugin system** — Unified plugin architecture with 4 built-in plugins; register tools, commands, hooks, and prompt segments through a single interface
 - **Claude Code compatibility** — Read-only import of sessions, memory, commands, MCP configs, hooks, and permissions from the official Claude Code CLI (`~/.claude/` and `.claude/`)
 - **Diagnostics** — `/doctor` checks Node.js, API keys, CLI tools, network, MCP servers, plugins
 - **Shell completions** — bash, zsh, and fish completion scripts
@@ -615,105 +615,108 @@ cp src/completions/fish.sh ~/.config/fish/completions/claude-core.fish
 ## Architecture
 
 ```
-src/                           # 92 files, ~14,000 lines
-├── index.ts                   # CLI entry point, REPL loop (~1,075 lines)
+src/                           # ~97 files, ~14,500 lines
+├── index.tsx                  # CLI entry point, REPL loop, Ink UI
 ├── utils.ts                   # Shared utilities
-├── commands/                  # 26 slash command files
-│   ├── index.ts               # Command registry barrel
-│   ├── agents-cmd.ts          # /agents — list built-in + custom agents
-│   ├── init.ts                # /init — project scaffolding
+│
+├── plugins/                   # Registration layer — what gets loaded at startup
+│   ├── index.ts               # Barrel export for all built-in plugins
+│   ├── core-prompt-plugin.ts  # Registers system prompt segments
+│   ├── memory-plugin.ts       # Registers /memory + memory prompt segment
+│   ├── commands-plugin.ts     # Registers 24 slash commands
+│   └── skills-plugin.ts       # Loads skills + /skills command + prompt segment
+│
+├── commands/                  # Implementation layer — 26 slash command files
+│   ├── help.ts                # /help — command listing (needs registry)
+│   ├── session.ts             # /exit, /clear, /sessions
 │   ├── model.ts               # /model — interactive model menu
-│   ├── fast.ts                # /fast — toggle fast mode
-│   ├── thinking.ts            # /thinking — toggle thinking display
-│   ├── config.ts              # /config — settings viewer
-│   ├── copy.ts                # /copy — clipboard support
-│   ├── compact.ts             # /compact — manual compaction
-│   ├── doctor.ts              # /doctor — environment diagnostics
-│   ├── memory.ts              # /memory — persistent memory
-│   └── ...                    # 15 more command files
-├── completions/               # Shell completion scripts
-│   ├── bash.sh
-│   ├── zsh.sh
-│   └── fish.sh
-├── core/
-│   ├── agent-loop.ts          # Main conversation loop
-│   ├── commands.ts            # CommandRegistry + SlashCommand interface
-│   ├── context.ts             # Context management, compaction
-│   ├── session.ts             # Session persistence + Claude Code JSONL import
-│   ├── memory.ts              # Persistent memory (MEMORY.md + topic files)
-│   ├── markdown.ts            # Streaming markdown renderer (tables, hyperlinks)
-│   ├── syntax-highlight.ts    # Code block highlighting (15+ languages)
-│   ├── cost.ts                # Token tracking and cost calculation
-│   ├── hooks.ts               # 10 lifecycle event hooks (shell, prompt, programmatic)
-│   ├── hook-prompt.ts         # LLM-based hook evaluation (prompt hooks)
-│   ├── agents.ts              # Custom agent loading from markdown files
-│   ├── skills.ts              # Custom skill loader with preprocessing
-│   ├── file-tracker.ts        # File change tracking
-│   ├── file-history.ts        # Pre-edit snapshots for undo
-│   ├── image.ts               # Image support (base64, auto-detection)
-│   ├── pdf.ts                 # PDF text extraction
-│   ├── auth.ts                # Token storage (0600 perms)
-│   ├── output-style.ts        # Response style presets
-│   ├── suggestions.ts         # Context-aware prompt suggestions
-│   ├── permission-modes.ts    # 4 permission modes + project permissions
-│   ├── claude-compat.ts       # Claude Code read-only compatibility layer
-│   ├── retry.ts               # Exponential backoff
-│   ├── streaming.ts           # Provider streaming helpers
-│   ├── bash-analyzer.ts       # Intelligent bash output summarization
-│   ├── types.ts               # Type definitions
-│   ├── providers/
-│   │   ├── base.ts            # LLMProvider interface
-│   │   ├── anthropic.ts       # Claude API (caching, thinking)
-│   │   ├── openai-compat.ts   # OpenAI + compatible endpoints
-│   │   ├── gemini.ts          # Google Gemini API (streaming, thinking)
-│   │   └── index.ts           # Provider factory
-│   ├── mcp/
-│   │   ├── config.ts          # MCP server configuration loader
-│   │   ├── transport.ts       # Stdio + SSE transports
-│   │   ├── client.ts          # JSON-RPC client, tool discovery
-│   │   └── index.ts           # Init/disconnect barrel
-│   └── plugins/
-│       ├── types.ts           # Plugin manifest interface
-│       ├── loader.ts          # Dynamic import loader
-│       ├── manager.ts         # Install/enable/disable/list
-│       └── index.ts           # Singleton barrel
-├── tools/                     # 19 tool files
+│   ├── plugin.ts              # /plugin — manage plugins
+│   └── ...                    # 22 more command files
+│
+├── tools/                     # Implementation layer — 19 tool files
 │   ├── tool-registry.ts       # Registration, permissions, concurrency
-│   ├── read.ts                # Read files (+ PDF routing)
-│   ├── write.ts               # Write files
-│   ├── edit.ts                # Edit files (string replacement)
-│   ├── bash.ts                # Shell execution
-│   ├── glob.ts                # File pattern matching
-│   ├── grep.ts                # Content search (ripgrep)
-│   ├── task.ts                # Subagent delegation
-│   ├── notebook-edit.ts       # Jupyter notebook cell editing
-│   ├── web-search.ts          # Web search (Brave/Serper)
-│   ├── web-fetch.ts           # URL fetching
-│   ├── todo-write.ts          # Todo/task writing
-│   ├── enter-plan-mode.ts     # Plan mode entry
-│   ├── exit-plan-mode.ts      # Plan mode exit
-│   ├── bash-output.ts         # Bash output retrieval
-│   ├── kill-shell.ts          # Shell process termination
-│   ├── shell-registry.ts      # Persistent shell management
-│   ├── mcp-stubs.ts           # MCP tool stubs
+│   ├── read.ts, write.ts, edit.ts, bash.ts
+│   ├── glob.ts, grep.ts, task.ts
+│   ├── web-search.ts, web-fetch.ts
 │   └── all.ts                 # Auto-discovery barrel
-├── prompt/
-│   ├── system-prompt.ts       # Multi-segment prompt assembly with cache hints
+│
+├── prompt/                    # Implementation layer — prompt assembly logic
+│   ├── system-prompt.ts       # Multi-segment prompt builder with cache hints
 │   ├── agent-prompts.ts       # Subagent-specific prompts
 │   └── claude-md.ts           # CLAUDE.md file loader
-└── lib/
-    ├── diff.ts                # Unified diff computation and formatting
-    └── spinner.ts             # Braille spinner with context labels
+│
+├── prompts/                   # Content layer — overridable markdown templates
+│   ├── system-identity.md     # AI identity
+│   ├── system-rules.md        # Behavioral rules
+│   ├── system-tasks.md        # Task guidelines
+│   ├── system-coding.md       # Coding conventions
+│   └── agent-*.md             # Subagent prompts
+│
+├── core/                      # Core runtime
+│   ├── agent-loop.ts          # Main conversation loop
+│   ├── commands.ts            # CommandRegistry + SlashCommand interface
+│   ├── plugins/               # Plugin framework
+│   │   ├── types.ts           # Plugin, PluginContext, PromptSegmentRegistration
+│   │   ├── manager.ts         # Lifecycle: register, init, get*, enable/disable
+│   │   ├── loader.ts          # Legacy external plugin discovery
+│   │   └── index.ts           # Singleton + barrel
+│   ├── hooks.ts               # 10 lifecycle event hooks
+│   ├── agents.ts              # Custom agent loading
+│   ├── skills.ts              # Custom skill loading
+│   ├── memory.ts              # Persistent memory
+│   ├── session.ts             # Session persistence
+│   ├── context.ts             # Context management, compaction
+│   ├── cost.ts                # Token tracking and cost calculation
+│   ├── providers/             # LLM provider abstraction
+│   │   ├── anthropic.ts, openai-compat.ts, gemini.ts
+│   │   └── index.ts           # Provider factory
+│   └── mcp/                   # Model Context Protocol client
+│       ├── config.ts, transport.ts, client.ts
+│       └── index.ts
+│
+├── ui/                        # Ink-based terminal UI
+│   ├── components/            # React components
+│   ├── state.ts               # Reducer + state management
+│   └── event-bridge.ts        # Agent loop -> UI events
+│
+├── completions/               # Shell completion scripts (bash, zsh, fish)
+└── lib/                       # Utilities (diff, spinner)
 ```
+
+### Layer Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│  index.tsx — Startup & REPL                     │
+├─────────────────────────────────────────────────┤
+│  src/plugins/ — Registration layer              │
+│  (what gets loaded: commands, prompts, etc.)     │
+├─────────────┬───────────────┬───────────────────┤
+│ src/commands │  src/tools/   │  src/prompt/      │
+│ (how cmds   │  (how tools   │  (how prompts     │
+│  work)      │   work)       │   are built)      │
+├─────────────┴───────────────┴───────────────────┤
+│  src/core/ — Runtime (agent loop, hooks,        │
+│  sessions, providers, MCP, memory, skills)       │
+└─────────────────────────────────────────────────┘
+```
+
+Plugins are the **registration layer** — they orchestrate what gets loaded at startup. The directories below them (`commands/`, `tools/`, `prompt/`, `core/`) are the **implementation layer** — unchanged, reusable code that plugins delegate to.
 
 ### Key Design Decisions
 
+- **Plugin architecture** — All features register through a unified `Plugin` interface. Built-in plugins handle commands, prompts, memory, and skills. Plugins are a thin registration layer; implementation lives in `src/commands/`, `src/tools/`, `src/core/`.
 - **Anthropic-shaped internals** — All internal message types match the Anthropic SDK format. Providers translate at the API boundary.
 - **Async generator tools** — Tools yield `progress` (transient UI) and `result` (AI-visible). Enables streaming progress display.
 - **No build step** — `tsx` runs TypeScript directly. No compilation, no bundling.
 - **Zero-dependency features** — Syntax highlighting, markdown tables, hyperlinks, and diff formatting all built in-house with chalk. No heavy parser dependencies.
 - **Provider-agnostic** — Switching providers is one env var change. All tools work identically.
-- **Command registry pattern** — Replaces inline if/else with structured `SlashCommand` interface + `CommandRegistry` class.
+
+### Extensibility
+
+Claude Code Core has 6 extension mechanisms: **Skills** (markdown commands), **Custom Agents** (markdown subagents), **Hooks** (lifecycle events), **MCP Servers** (external tools), **Plugins** (TypeScript modules), and **Prompt Overrides** (markdown templates).
+
+See **[docs/extensibility.md](docs/extensibility.md)** for the full guide.
 
 ### Adding New Tools
 
@@ -727,10 +730,12 @@ async *call(input, context) {
 }
 ```
 
+Or register tools via a plugin — see [docs/extensibility.md](docs/extensibility.md#plugins).
+
 ### Adding New Commands
 
 1. Create `src/commands/your-command.ts` implementing `SlashCommand`
-2. Import and register in `src/commands/index.ts`
+2. Register in a plugin via `ctx.registerCommand(myCommand)` (see `src/plugins/commands-plugin.ts`)
 
 ```typescript
 export const myCommand: SlashCommand = {
@@ -743,6 +748,8 @@ export const myCommand: SlashCommand = {
   },
 };
 ```
+
+Or skip TypeScript entirely — create a [Skill](docs/extensibility.md#skills) as a markdown file.
 
 ## Development
 
@@ -788,4 +795,4 @@ This project is provided as-is for educational and development purposes.
 
 ---
 
-*Claude Code Core — 93 source files, ~14,000 lines of TypeScript. Multi-provider LLM CLI with full tool use, 30+ commands, custom agents, 10 lifecycle hooks, MCP/plugin ecosystem, Claude Code compatibility, and developer-friendly controls.*
+*Claude Code Core — ~97 source files, ~14,500 lines of TypeScript. Multi-provider LLM CLI with unified plugin architecture, 19 tools, 30+ commands, custom agents, 10 lifecycle hooks, MCP integration, 6 extension mechanisms, Claude Code compatibility, and developer-friendly controls.*

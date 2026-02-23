@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Claude Code Core is a lightweight, extensible AI-powered coding assistant CLI written in TypeScript. It provides interactive terminal access to multiple LLM providers (Anthropic, OpenAI, OpenAI-compatible) with file operations, shell commands, web search, task delegation, session management, a plugin/MCP ecosystem, and 30+ slash commands.
+Claude Code Core is a lightweight, extensible AI-powered coding assistant CLI written in TypeScript. It provides interactive terminal access to multiple LLM providers (Anthropic, OpenAI, OpenAI-compatible) with file operations, shell commands, web search, task delegation, session management, a unified plugin architecture, MCP integration, and 30+ slash commands.
 
-**Stats**: 91 source files (88 TypeScript + 3 shell), ~13,000 lines across `src/`.
+**Stats**: ~97 source files (~94 TypeScript + 3 shell), ~14,500 lines across `src/`.
 
 ## Commands
 
@@ -25,7 +25,7 @@ No build step required — uses `tsx` for direct TypeScript execution. No test f
 
 ### Entry Point
 
-`src/index.ts` (~1,075 lines) — CLI argument parsing, REPL loop with tab completion, multi-line input (backslash continuation), Escape key handling, command dispatch via `CommandRegistry`, session management, permission prompts, welcome banner, per-turn token/cost display, file snapshot saving for undo, image path detection, and lifecycle hook firing.
+`src/index.tsx` — CLI entry point with Ink-based terminal UI. Plugin initialization (registers built-in plugins, discovers external), tool registry setup, command registry from plugin-provided commands, system prompt built via plugin prompt segments. Handles REPL loop, session management, permission prompts, welcome banner, token/cost display, file snapshots, and lifecycle hooks.
 
 ### Command System (`src/commands/`, `src/core/commands.ts`)
 
@@ -39,7 +39,35 @@ No build step required — uses `tsx` for direct TypeScript execution. No test f
 
 **Adding a new command:**
 1. Create `src/commands/your-command.ts` implementing `SlashCommand`
-2. Import and register it in `src/commands/index.ts`
+2. Register it via `ctx.registerCommand()` in a plugin (see `src/plugins/commands-plugin.ts`)
+
+### Plugin System (`src/plugins/`, `src/core/plugins/`)
+
+**Layer architecture:** Plugins are the **registration layer** (what gets loaded). `src/commands/`, `src/tools/`, `src/prompt/` are the **implementation layer** (how things work). Plugins import from implementation files and register them through a unified `PluginContext`.
+
+**Plugin interface:** `Plugin` has `descriptor` (name, version, description, dependencies) and `init(ctx)`. The `PluginContext` provides `registerTool()`, `registerCommand()`, `registerHook()`, `registerPromptSegment()`, and `cwd`.
+
+**Built-in plugins** (registered in `index.tsx` startup):
+- `core-prompt` — 8 prompt segments (identity, rules, tools, guidelines, environment, claude-md, output-style)
+- `memory` — `/memory` command + memory prompt segment
+- `commands` — 24 slash commands (all except `/help`, `/memory`, `/skills`)
+- `skills` — Skill loading + `/skills` command + skills-list prompt segment
+
+**Startup flow:**
+1. `PluginManager` created, cwd set
+2. Built-in plugins registered (`registerBuiltin`)
+3. External plugins discovered (`discoverExternal` — wraps legacy `~/.claude-code-core/plugins/`)
+4. Hooks and agents loaded (core, not plugins)
+5. All plugins initialized (`init` — topological sort by deps)
+6. Tool registry: built-in tools + `pluginManager.getTools()` + Task + MCP
+7. Command registry: `pluginManager.getCommands()` + `createHelpCommand()`
+8. System prompt: `buildSystemPrompt(cwd, toolNames, pluginManager)` — collects prompt segments
+
+**Prompt segments** have `position` (static/dynamic/volatile → cache groups) and `priority` (sort order within group, lower=earlier).
+
+**External plugins** in `~/.claude-code-core/plugins/` with `plugin.json` are auto-wrapped into the `Plugin` interface.
+
+See `docs/extensibility.md` for the full guide to all 6 extension mechanisms.
 
 ### Agent Loop (`src/core/agent-loop.ts`)
 
@@ -110,12 +138,12 @@ Estimates tokens, checks compaction thresholds (80% of context window), and comp
 
 Tools registered as `mcp__serverName__toolName`.
 
-### Plugin System (`src/core/plugins/`)
+### Plugin Framework (`src/core/plugins/`)
 
-- `types.ts` — Plugin manifest interface
-- `loader.ts` — Dynamic import from `~/.claude-code-core/plugins/`
-- `manager.ts` — Install, enable, disable, list
-- `index.ts` — Singleton `PluginManager`
+- `types.ts` — `Plugin`, `PluginContext`, `PromptSegmentRegistration`, `PluginDescriptor` + legacy `PluginManifest`/`PluginInstance`
+- `manager.ts` — `PluginManager` with register/init/getTools/getCommands/getPromptSegments/enable/disable
+- `loader.ts` — Legacy external plugin discovery from `~/.claude-code-core/plugins/`
+- `index.ts` — Singleton + barrel export
 
 ### Other Core Modules
 

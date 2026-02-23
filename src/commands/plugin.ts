@@ -28,12 +28,13 @@ export const pluginCommand: SlashCommand = {
             )
           );
         } else {
-          console.log(chalk.dim("\nInstalled plugins:"));
+          console.log(chalk.dim("\nPlugins:"));
           for (const p of plugins) {
             const status = p.enabled
               ? chalk.green("enabled")
               : chalk.dim("disabled");
-            console.log(`  ${chalk.cyan(p.name)} ${status} — ${p.description}`);
+            const tag = p.builtin ? chalk.dim(" [built-in]") : "";
+            console.log(`  ${chalk.cyan(p.name)} ${status}${tag} — ${p.description}`);
           }
         }
         console.log();

@@ -3,7 +3,16 @@
  */
 
 export { PluginManager } from "./manager.js";
-export type { PluginManifest, PluginInstance } from "./types.js";
+export type {
+  PluginManifest,
+  PluginInstance,
+  Plugin,
+  PluginDescriptor,
+  PluginContext,
+  PromptSegmentRegistration,
+  PromptSegmentPosition,
+  PromptBuildContext,
+} from "./types.js";
 
 import { PluginManager } from "./manager.js";
 

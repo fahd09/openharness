@@ -7,6 +7,8 @@ import type { SystemPrompt, SystemPromptSegment } from "../core/types.js";
 import type { AgentDefinition } from "../core/agents.js";
 import { listSkills } from "../core/skills.js";
 import { loadPrompt } from "../core/prompt-loader.js";
+import type { PluginManager } from "../core/plugins/index.js";
+import type { PromptSegmentPosition } from "../core/plugins/types.js";
 
 /**
  * Assemble the full system prompt from modular sections.
@@ -22,8 +24,17 @@ import { loadPrompt } from "../core/prompt-loader.js";
  */
 export async function buildSystemPrompt(
   cwd: string,
-  toolNames: string[]
+  toolNames: string[],
+  pluginManager?: PluginManager
 ): Promise<SystemPrompt> {
+  // ── Plugin-driven path ─────────────────────────────────────
+  // When a pluginManager is provided, collect prompt segments from
+  // all enabled plugins, group by position, and assemble.
+  if (pluginManager) {
+    return buildSystemPromptFromPlugins(cwd, toolNames, pluginManager);
+  }
+
+  // ── Legacy path (subagent prompts, no pluginManager) ───────
   const segments: SystemPromptSegment[] = [];
 
   // ── Static segments (stable across all sessions) ──────────
@@ -89,6 +100,60 @@ export async function buildSystemPrompt(
 }
 
 /**
+ * Build system prompt from plugin-registered prompt segments.
+ * Groups segments by position (static/dynamic/volatile), calls each
+ * content callback, and assembles into SystemPromptSegment[] with
+ * appropriate cache hints.
+ */
+async function buildSystemPromptFromPlugins(
+  cwd: string,
+  toolNames: string[],
+  pluginManager: PluginManager
+): Promise<SystemPrompt> {
+  const registrations = pluginManager.getPromptSegments();
+  const buildCtx = { cwd, toolNames };
+
+  // Group by position
+  const groups: Record<PromptSegmentPosition, string[]> = {
+    static: [],
+    dynamic: [],
+    volatile: [],
+  };
+
+  for (const reg of registrations) {
+    const text = await reg.content(buildCtx);
+    if (text) {
+      groups[reg.position].push(text);
+    }
+  }
+
+  const segments: SystemPromptSegment[] = [];
+
+  if (groups.static.length > 0) {
+    segments.push({
+      text: groups.static.join("\n\n"),
+      cacheHint: true,
+    });
+  }
+
+  if (groups.dynamic.length > 0) {
+    segments.push({
+      text: groups.dynamic.join("\n\n"),
+      cacheHint: true,
+    });
+  }
+
+  if (groups.volatile.length > 0) {
+    segments.push({
+      text: groups.volatile.join("\n\n"),
+      cacheHint: false,
+    });
+  }
+
+  return segments;
+}
+
+/**
  * Convert system prompt segments to a single string.
  * Used for token estimation and legacy compatibility.
  */
@@ -96,15 +161,15 @@ export function systemPromptToString(prompt: SystemPrompt): string {
   return prompt.map((s) => s.text).join("\n\n");
 }
 
-function identitySection(): string {
+export function identitySection(): string {
   return loadPrompt("system-identity");
 }
 
-function systemSection(): string {
+export function systemSection(): string {
   return loadPrompt("system-rules");
 }
 
-function toolInstructions(toolNames: string[]): string {
+export function toolInstructions(toolNames: string[]): string {
   const instructions = [
     "# Using tools",
     "Use dedicated tools instead of Bash when possible:",
@@ -145,15 +210,15 @@ function toolInstructions(toolNames: string[]): string {
   return instructions.join("\n");
 }
 
-function taskGuidelines(): string {
+export function taskGuidelines(): string {
   return loadPrompt("system-tasks");
 }
 
-function codingGuidelines(): string {
+export function codingGuidelines(): string {
   return loadPrompt("system-coding");
 }
 
-async function environmentSection(cwd: string): Promise<string> {
+export async function environmentSection(cwd: string): Promise<string> {
   const isGit = await checkIsGitRepo(cwd);
 
   const envLines = [
