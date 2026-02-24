@@ -19,16 +19,6 @@ function explorePrompt(toolNames: string[]): string {
   if (toolNames.includes("Read")) tools.push("- Use Read when you know the specific file path you need to read");
   if (toolNames.includes("Bash")) {
     tools.push("- Use Bash for file operations like copying, moving, or listing directory contents");
-    tools.push("");
-    tools.push("CLI tools available via Bash (use these when they are better than built-in tools):");
-    tools.push('- `rg` (ripgrep): Fast text search. Example: `rg "TODO" --type ts` to find TODOs in TypeScript files');
-    tools.push('- `fd`: Fast file finder. Example: `fd -e ts src/` to find all .ts files under src/');
-    tools.push('- `ast-grep`: Syntax-aware code search. Example: `ast-grep --lang ts --pattern "async function $NAME($$$ARGS)"` to find async functions');
-    tools.push("- `jq`: JSON processing. Example: `jq '.dependencies' package.json` to extract dependencies");
-    tools.push("");
-    tools.push("When to use ast-grep vs rg:");
-    tools.push("- ast-grep: for STRUCTURAL code queries (find async functions, class methods, imports). Understands syntax.");
-    tools.push("- rg: for PLAIN TEXT searches (find TODOs, string literals, comments). Faster for simple patterns.");
   }
 
   const base = loadPrompt("agent-explore");

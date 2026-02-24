@@ -48,8 +48,9 @@ export const doctorCommand: SlashCommand = {
   description: "Run environment diagnostics",
   category: "info",
   async execute(_args: string, ctx: CommandContext): Promise<boolean> {
-    console.log(chalk.bold("\n  Environment Diagnostics"));
-    console.log(chalk.dim("  " + "─".repeat(40)));
+    const output = ctx.output ?? console.log;
+    output(chalk.bold("\n  Environment Diagnostics"));
+    output(chalk.dim("  " + "─".repeat(40)));
 
     const checks: Array<{ label: string; status: "ok" | "warn" | "error"; detail: string }> = [];
 
@@ -141,7 +142,7 @@ export const doctorCommand: SlashCommand = {
     }
 
     // Network connectivity
-    console.log(chalk.dim("\n  Checking network..."));
+    output(chalk.dim("\n  Checking network..."));
     if (provider === "anthropic") {
       const reachable = await checkNetwork("api.anthropic.com");
       checks.push({
@@ -214,20 +215,20 @@ export const doctorCommand: SlashCommand = {
           : check.status === "warn"
             ? chalk.yellow("⚠")
             : chalk.red("✗");
-      console.log(`  ${icon} ${chalk.dim(check.label)}: ${check.detail}`);
+      output(`  ${icon} ${chalk.dim(check.label)}: ${check.detail}`);
     }
 
     const errors = checks.filter((c) => c.status === "error").length;
     const warnings = checks.filter((c) => c.status === "warn").length;
-    console.log();
+    output();
     if (errors > 0) {
-      console.log(chalk.red(`  ${errors} error(s) found. Fix these for full functionality.`));
+      output(chalk.red(`  ${errors} error(s) found. Fix these for full functionality.`));
     } else if (warnings > 0) {
-      console.log(chalk.yellow(`  ${warnings} warning(s). Everything should work fine.`));
+      output(chalk.yellow(`  ${warnings} warning(s). Everything should work fine.`));
     } else {
-      console.log(chalk.green("  All checks passed!"));
+      output(chalk.green("  All checks passed!"));
     }
-    console.log();
+    output();
 
     return true;
   },

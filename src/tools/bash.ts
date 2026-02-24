@@ -46,7 +46,7 @@ export const bashTool: Tool = {
       const entry = spawnBackgroundShell(input.command, context.cwd, timeout);
       yield {
         type: "result",
-        content: `Background shell started.\nshell_id: ${entry.id}\ncommand: ${input.command}\nUse BashOutput with shell_id "${entry.id}" to read output.`,
+        content: `Background shell started.\ntask_id: ${entry.id}\ncommand: ${input.command}\nUse TaskOutput with task_id "${entry.id}" to read output.`,
       };
       return;
     }

@@ -7,11 +7,12 @@
  * mutable session state needed for execution.
  */
 
-import type { ConversationMessage, SystemPrompt } from "./types.js";
+import type { ConversationMessage, SystemPrompt, PromptSegmentDetail } from "./types.js";
 import type { ToolRegistry } from "../tools/tool-registry.js";
 import type { PermissionRequest, PermissionResult } from "../tools/tool-registry.js";
 import type { CostTracker } from "./cost.js";
 import type { FileChangeTracker } from "./file-tracker.js";
+import type { AppAction } from "../ui/state.js";
 import type * as readline from "readline";
 
 // ── Interfaces ──────────────────────────────────────────────────────
@@ -29,6 +30,8 @@ export interface CommandContext {
   fileTracker: FileChangeTracker;
   /** System prompt segments. */
   systemPrompt: SystemPrompt;
+  /** Per-plugin-segment details for token breakdown. */
+  promptSegmentDetails: PromptSegmentDetail[];
   /** Readline interface for interactive prompts (optional — may not be available in Ink mode). */
   rl?: readline.Interface;
   /** Current working directory. */
@@ -48,6 +51,8 @@ export interface CommandContext {
    * Falls back to console.log if not provided.
    */
   output?: (text: string) => void;
+  /** Dispatch UI actions (Ink mode only). */
+  dispatch?: (action: AppAction) => void;
 }
 
 export interface SlashCommand {

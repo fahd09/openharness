@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Bash completion for claude-code-core (claude-core)
+# Bash completion for openharness
 # Add to ~/.bashrc: source /path/to/completions/bash.sh
 
-_claude_core_completions() {
+_openharness_completions() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   local prev="${COMP_WORDS[COMP_CWORD-1]}"
 
@@ -10,7 +10,7 @@ _claude_core_completions() {
   local opts="--model -m --max-turns -p --prompt --system-prompt --thinking-budget --permission-mode --resume -r --verbose -v --help -h"
 
   # Model options
-  local models="opus sonnet haiku 4o 4o-mini 4-turbo"
+  local models="opus sonnet haiku 4o 4o-mini 4-turbo flash pro"
 
   # Permission modes
   local modes="default acceptEdits bypassPermissions plan"
@@ -37,5 +37,4 @@ _claude_core_completions() {
   fi
 }
 
-complete -o default -F _claude_core_completions claude-core
-complete -o default -F _claude_core_completions claude-code-core
+complete -o default -F _openharness_completions openharness

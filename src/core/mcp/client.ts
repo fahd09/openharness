@@ -67,7 +67,7 @@ export class McpClient {
       protocolVersion: "2024-11-05",
       capabilities: {},
       clientInfo: {
-        name: "claude-code-core",
+        name: "openharness",
         version: "0.1.0",
       },
     });

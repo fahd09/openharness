@@ -14,6 +14,7 @@ export const statusCommand: SlashCommand = {
   description: "Show session status (model, cost, context usage)",
   category: "info",
   async execute(_args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
     const totalCost = ctx.costTracker.getTotalCost();
     const systemStr = systemPromptToString(ctx.systemPrompt);
     const contextUsed = estimateConversationTokens(ctx.messages, systemStr);
@@ -21,29 +22,29 @@ export const statusCommand: SlashCommand = {
     const contextPct = ((contextUsed / contextWindow) * 100).toFixed(1);
     const filesSummary = ctx.fileTracker.getSummary();
 
-    console.log(chalk.bold("\n  Session Status"));
-    console.log(chalk.dim("  " + "─".repeat(40)));
-    console.log(`  ${chalk.dim("Session:")}  ${ctx.sessionId}`);
-    console.log(`  ${chalk.dim("Model:")}    ${ctx.model}`);
-    console.log(`  ${chalk.dim("Provider:")} ${(process.env.LLM_PROVIDER || "anthropic").toLowerCase()}`);
-    console.log(`  ${chalk.dim("Mode:")}     ${ctx.permissionMode}`);
-    console.log(`  ${chalk.dim("CWD:")}      ${ctx.cwd}`);
-    console.log(
+    output(chalk.bold("\n  Session Status"));
+    output(chalk.dim("  " + "─".repeat(40)));
+    output(`  ${chalk.dim("Session:")}  ${ctx.sessionId}`);
+    output(`  ${chalk.dim("Model:")}    ${ctx.model}`);
+    output(`  ${chalk.dim("Provider:")} ${(process.env.LLM_PROVIDER || "anthropic").toLowerCase()}`);
+    output(`  ${chalk.dim("Mode:")}     ${ctx.permissionMode}`);
+    output(`  ${chalk.dim("CWD:")}      ${ctx.cwd}`);
+    output(
       `  ${chalk.dim("Messages:")} ${ctx.messages.length}`
     );
-    console.log(
+    output(
       `  ${chalk.dim("Context:")}  ~${contextUsed.toLocaleString()} / ${contextWindow.toLocaleString()} tokens (${contextPct}%)`
     );
-    console.log(`  ${chalk.dim("Cost:")}     ${formatCost(totalCost)}`);
+    output(`  ${chalk.dim("Cost:")}     ${formatCost(totalCost)}`);
 
     if (filesSummary.filesChanged > 0) {
-      console.log(
+      output(
         `  ${chalk.dim("Files:")}    ${filesSummary.filesChanged} changed` +
           ` (${chalk.green(`+${filesSummary.totalAdded}`)} ${chalk.red(`-${filesSummary.totalRemoved}`)})`
       );
     }
 
-    console.log();
+    output("");
     return true;
   },
 };

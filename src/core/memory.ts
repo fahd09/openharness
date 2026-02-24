@@ -1,7 +1,7 @@
 /**
  * Memory System — persistent notes across sessions.
  *
- * Stores project-scoped memory in ~/.claude-code-core/projects/{hash}/memory/.
+ * Stores project-scoped memory in ~/.openharness/projects/{hash}/memory/.
  * MEMORY.md is loaded into the system prompt as a dynamic section.
  */
 
@@ -18,7 +18,7 @@ import { getClaudeProjectDir } from "./claude-compat.js";
 export function getMemoryDir(cwd?: string): string {
   const projectPath = cwd ?? process.cwd();
   const hash = createHash("md5").update(projectPath).digest("hex").slice(0, 12);
-  return join(homedir(), ".claude-code-core", "projects", hash, "memory");
+  return join(homedir(), ".openharness", "projects", hash, "memory");
 }
 
 /**
@@ -119,19 +119,19 @@ export async function listMemoryFiles(cwd?: string): Promise<string[]> {
  * Get the memory directory for a named agent.
  *
  * Scope determines where memory is stored:
- * - "user" → ~/.claude-code-core/agent-memory/{name}/
- * - "project" → <cwd>/.claude-code-core/agent-memory/{name}/
- * - "local" → <cwd>/.claude-code-core/agent-memory-local/{name}/
+ * - "user" → ~/.openharness/agent-memory/{name}/
+ * - "project" → <cwd>/.openharness/agent-memory/{name}/
+ * - "local" → <cwd>/.openharness/agent-memory-local/{name}/
  */
 export function getAgentMemoryDir(agentName: string, scope: "user" | "project" | "local", cwd?: string): string {
   const projectPath = cwd ?? process.cwd();
   switch (scope) {
     case "user":
-      return join(homedir(), ".claude-code-core", "agent-memory", agentName);
+      return join(homedir(), ".openharness", "agent-memory", agentName);
     case "project":
-      return join(projectPath, ".claude-code-core", "agent-memory", agentName);
+      return join(projectPath, ".openharness", "agent-memory", agentName);
     case "local":
-      return join(projectPath, ".claude-code-core", "agent-memory-local", agentName);
+      return join(projectPath, ".openharness", "agent-memory-local", agentName);
   }
 }
 

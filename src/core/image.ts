@@ -62,6 +62,29 @@ export async function loadImageAsBlock(
 }
 
 /**
+ * Build content blocks with images from user input.
+ * If images are detected, returns an array of text + image blocks.
+ * Otherwise returns the input string as-is.
+ */
+export async function buildContentWithImages(
+  userInput: string
+): Promise<string | Array<{ type: string; [key: string]: unknown }>> {
+  const imagePaths = detectImagePaths(userInput);
+  if (imagePaths.length === 0) return userInput;
+
+  const contentBlocks: Array<{ type: string; [key: string]: unknown }> = [
+    { type: "text", text: userInput },
+  ];
+  for (const imgPath of imagePaths) {
+    try {
+      const imageBlock = await loadImageAsBlock(imgPath);
+      contentBlocks.push(imageBlock as { type: string; [key: string]: unknown });
+    } catch {}
+  }
+  return contentBlocks.length > 1 ? contentBlocks : userInput;
+}
+
+/**
  * Detect image paths in user input text.
  * Returns array of image paths found.
  */

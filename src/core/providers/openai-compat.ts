@@ -185,7 +185,10 @@ function toOpenAIMessages(
         }
       }
     } else if (msg.role === "assistant") {
-      if (typeof msg.content === "string") {
+      if (msg.content == null) {
+        // Guard against null/undefined content (e.g. from cross-provider session resume)
+        result.push({ role: "assistant", content: "" });
+      } else if (typeof msg.content === "string") {
         result.push({ role: "assistant", content: msg.content });
       } else if (Array.isArray(msg.content)) {
         const blocks = msg.content as Array<Record<string, unknown>>;
@@ -208,7 +211,7 @@ function toOpenAIMessages(
 
         const assistantMsg: OpenAIMessage = {
           role: "assistant",
-          content: textParts || null,
+          content: textParts || "",
         };
 
         if (toolCalls.length > 0) {
@@ -255,40 +258,11 @@ function mapFinishReason(reason: string | null): StopReason {
   }
 }
 
-// ── SSE Parser ───────────────────────────────────────────────────
+// Re-export generic SSE parser typed for OpenAI chunks
+import { parseSSE as genericParseSSE } from "./sse-parser.js";
 
-async function* parseSSE(
-  reader: ReadableStreamDefaultReader<Uint8Array>
-): AsyncGenerator<OpenAIStreamChunk> {
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-
-    // Process complete SSE events (delimited by double newlines)
-    const events = buffer.split("\n");
-    buffer = events.pop() ?? ""; // Keep incomplete line in buffer
-
-    for (const line of events) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith(":")) continue; // Empty or comment
-
-      if (trimmed.startsWith("data: ")) {
-        const data = trimmed.slice(6);
-        if (data === "[DONE]") return;
-
-        try {
-          yield JSON.parse(data) as OpenAIStreamChunk;
-        } catch {
-          // Skip malformed JSON
-        }
-      }
-    }
-  }
+function parseSSE(reader: ReadableStreamDefaultReader<Uint8Array>): AsyncGenerator<OpenAIStreamChunk> {
+  return genericParseSSE<OpenAIStreamChunk>(reader);
 }
 
 // ── Provider implementation ──────────────────────────────────────
@@ -487,6 +461,7 @@ export class OpenAICompatProvider implements LLMProvider {
         messages: params.messages,
         max_tokens: params.maxTokens,
       }),
+      signal: params.signal,
     });
 
     if (!response.ok) {

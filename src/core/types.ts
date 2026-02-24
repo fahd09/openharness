@@ -17,7 +17,20 @@ export interface SystemPromptSegment {
   cacheHint: boolean; // Whether to add cache_control breakpoint here
 }
 
+/** Per-plugin-segment metadata for token breakdown in /cost. */
+export interface PromptSegmentDetail {
+  id: string;
+  position: "static" | "dynamic" | "volatile";
+  charCount: number;
+}
+
 export type SystemPrompt = SystemPromptSegment[];
+
+/** Result of building the system prompt — includes segment metadata for diagnostics. */
+export interface SystemPromptResult {
+  segments: SystemPrompt;
+  details: PromptSegmentDetail[];
+}
 
 export type StopReason =
   | "end_turn"

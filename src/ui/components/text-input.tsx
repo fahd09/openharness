@@ -7,44 +7,79 @@
  * - Backslash continuation for multi-line input
  * - Tab completion (for slash commands and skills)
  * - Input history (up/down arrows)
+ * - @file mentions (inserts highlighted reference, tracked for submit)
  * - Escape to clear
  * - Ctrl+C to interrupt
  * - Ctrl+D to exit
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useImperativeHandle, forwardRef } from "react";
 import { Text, Box, useInput } from "ink";
 import chalk from "chalk";
 
 export interface TextInputProps {
   /** Called when user submits input (Enter key). */
-  onSubmit: (value: string) => void;
+  onSubmit: (value: string, mentions: string[]) => void;
   /** Called on Ctrl+C. */
   onInterrupt?: () => void;
   /** Called on Ctrl+D (EOF). */
   onExit?: () => void;
   /** Tab completion function: returns [completions, originalLine]. */
   completer?: (line: string) => [string[], string];
+  /** Called when user types "@" to trigger file mention. */
+  onFileMention?: () => void;
   /** Whether input is active (disabled during processing). */
   isActive?: boolean;
   /** Prompt string. */
   prompt?: string;
 }
 
-export function TextInput({
-  onSubmit,
-  onInterrupt,
-  onExit,
-  completer,
-  isActive = true,
-  prompt = chalk.blue("> "),
-}: TextInputProps): React.ReactElement | null {
+export interface TextInputHandle {
+  /** Insert a file mention at the cursor. Called by parent after file selection. */
+  insertMention: (filePath: string) => void;
+}
+
+/** Highlight @mention tokens in a text string. */
+function highlightMentions(text: string, mentions: string[]): string {
+  if (mentions.length === 0) return text;
+  let result = text;
+  for (const m of mentions) {
+    const token = `@${m}`;
+    // Split/join to avoid regex issues with special chars in paths
+    result = result.split(token).join(chalk.cyan.bold(token));
+  }
+  return result;
+}
+
+export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function TextInput(
+  {
+    onSubmit,
+    onInterrupt,
+    onExit,
+    completer,
+    onFileMention,
+    isActive = true,
+    prompt = chalk.blue("> "),
+  },
+  ref,
+) {
   const [value, setValue] = useState("");
   const [cursor, setCursor] = useState(0);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [multiLineBuffer, setMultiLineBuffer] = useState("");
   const [isMultiLine, setIsMultiLine] = useState(false);
+  const [mentions, setMentions] = useState<string[]>([]);
+
+  // Expose insertMention to parent via ref
+  useImperativeHandle(ref, () => ({
+    insertMention(filePath: string) {
+      const token = `@${filePath} `;
+      setValue((v) => v.slice(0, cursor) + token + v.slice(cursor));
+      setCursor((c) => c + token.length);
+      setMentions((prev) => prev.includes(filePath) ? prev : [...prev, filePath]);
+    },
+  }), [cursor]);
 
   const submit = useCallback((text: string) => {
     const fullInput = multiLineBuffer
@@ -65,15 +100,23 @@ export function TextInput({
     // Submit
     const trimmed = fullInput.trim();
     if (trimmed) {
-      setHistory((prev) => [...prev, trimmed]);
+      setHistory((prev) => {
+        const next = [...prev, trimmed];
+        return next.length > 100 ? next.slice(-100) : next;
+      });
     }
+
+    // Only include mentions that still appear in the submitted text
+    const activeMentions = mentions.filter((m) => fullInput.includes(`@${m}`));
+
     setHistoryIdx(-1);
     setMultiLineBuffer("");
     setIsMultiLine(false);
     setValue("");
     setCursor(0);
-    onSubmit(fullInput);
-  }, [multiLineBuffer, onSubmit]);
+    setMentions([]);
+    onSubmit(fullInput, activeMentions);
+  }, [multiLineBuffer, mentions, onSubmit]);
 
   useInput(
     (input, key) => {
@@ -96,12 +139,13 @@ export function TextInput({
         return;
       }
 
-      // Escape — clear line
+      // Escape — clear line and mentions
       if (key.escape) {
         setValue("");
         setCursor(0);
         setMultiLineBuffer("");
         setIsMultiLine(false);
+        setMentions([]);
         return;
       }
 
@@ -209,6 +253,15 @@ export function TextInput({
         return;
       }
 
+      // "@" triggers file mention (only when input is empty or after whitespace)
+      if (input === "@" && onFileMention) {
+        const charBefore = cursor > 0 ? value[cursor - 1] : undefined;
+        if (value.length === 0 || charBefore === " " || charBefore === undefined) {
+          onFileMention();
+          return;
+        }
+      }
+
       // Regular character input
       if (input && !key.ctrl && !key.meta) {
         setValue((v) => v.slice(0, cursor) + input + v.slice(cursor));
@@ -223,7 +276,16 @@ export function TextInput({
   const separator = chalk.dim("\u2500".repeat(Math.max(width - 1, 1)));
 
   if (!isActive) {
-    // Dimmed separator + prompt when input is inactive (during processing)
+    // Show current text (dimmed) when inactive — preserves mention visibility
+    if (value) {
+      const display = highlightMentions(value, mentions);
+      return (
+        <Box flexDirection="column">
+          <Text>{separator}</Text>
+          <Text>{chalk.dim("\u276F ")} {display}</Text>
+        </Box>
+      );
+    }
     return (
       <Box flexDirection="column">
         <Text>{separator}</Text>
@@ -234,17 +296,26 @@ export function TextInput({
 
   const promptPrefix = isMultiLine ? chalk.dim("... ") : prompt;
 
-  // Show cursor by inverting the character at cursor position
-  const before = value.slice(0, cursor);
+  // Show cursor by inverting the character at cursor position,
+  // with @mentions highlighted in cyan
+  const before = highlightMentions(value.slice(0, cursor), mentions);
   const cursorChar = cursor < value.length ? value[cursor] : " ";
-  const after = value.slice(cursor + 1);
+  const after = highlightMentions(value.slice(cursor + 1), mentions);
   const displayValue = before + chalk.inverse(cursorChar) + after;
+
+  // Build buffer lines for multi-line display
+  const bufferLines = isMultiLine && multiLineBuffer
+    ? multiLineBuffer.split("\n")
+    : [];
 
   return (
     <Box flexDirection="column">
       <Text>{separator}</Text>
+      {bufferLines.map((line, i) => (
+        <Text key={i}>{i === 0 ? prompt : chalk.dim("... ")}{chalk.dim(line)}</Text>
+      ))}
       <Text>{promptPrefix}{displayValue}</Text>
       <Text>{separator}</Text>
     </Box>
   );
-}
+});

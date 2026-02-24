@@ -109,15 +109,17 @@ export function estimateConversationTokens(
 
 /**
  * Check if API messages need compaction.
+ * Optionally accepts a pre-computed token estimate to avoid O(n) re-estimation.
  */
 export function needsCompaction(
   messages: Anthropic.MessageParam[],
   systemPrompt: string | SystemPrompt,
-  model: string
+  model: string,
+  precomputedTokens?: number
 ): boolean {
   const contextWindow =
     CONTEXT_WINDOWS[model] ?? CONTEXT_WINDOWS["default"];
-  const used = estimateApiTokens(messages, systemPrompt);
+  const used = precomputedTokens ?? estimateApiTokens(messages, systemPrompt);
   return used > contextWindow * COMPACT_THRESHOLD - COMPACT_BUFFER;
 }
 
@@ -138,7 +140,8 @@ export async function compactConversation(
   messages: Anthropic.MessageParam[],
   systemPrompt: string | SystemPrompt,
   model: string,
-  customPreservation?: string
+  customPreservation?: string,
+  signal?: AbortSignal
 ): Promise<{
   messages: Anthropic.MessageParam[];
   preTokens: number;
@@ -194,6 +197,7 @@ ${JSON.stringify(cleanedForSummary)}
       model,
       maxTokens: 2048,
       messages: [{ role: "user", content: summaryPrompt }],
+      signal,
     });
 
     const summaryText =

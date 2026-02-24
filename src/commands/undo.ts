@@ -11,7 +11,8 @@ export const undoCommand: SlashCommand = {
   name: "undo",
   description: "Revert the last file edit",
   category: "tools",
-  async execute(args: string, _ctx: CommandContext): Promise<boolean> {
+  async execute(args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
     const history = getFileHistory();
     const targetPath = args.trim() || undefined;
 
@@ -20,17 +21,17 @@ export const undoCommand: SlashCommand = {
       : history.getLastSnapshot();
 
     if (!snapshot) {
-      console.log(chalk.dim("No file edits to undo."));
+      output(chalk.dim("No file edits to undo."));
       return true;
     }
 
     try {
       await writeFile(snapshot.path, snapshot.content, "utf-8");
       history.removeLastSnapshot(snapshot.path);
-      console.log(chalk.dim(`Reverted: ${snapshot.path}`));
+      output(chalk.dim(`Reverted: ${snapshot.path}`));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.log(chalk.red(`Failed to revert: ${msg}`));
+      output(chalk.red(`Failed to revert: ${msg}`));
     }
 
     return true;

@@ -16,6 +16,7 @@ import {
   type HookHandler,
 } from "../core/hooks.js";
 import { uuid, timestamp } from "../utils.js";
+import { registerBackgroundAgent, markAgentFinished } from "./background-task-registry.js";
 
 const inputSchema = z.object({
   prompt: z.string().describe("The task for the subagent to perform"),
@@ -92,11 +93,7 @@ const AGENT_CONFIGS: Record<string, AgentConfig> = {
 // Track running/completed agents for resume
 const agentTranscripts = new Map<string, ConversationMessage[]>();
 
-const MODEL_MAP: Record<string, string> = {
-  opus: "claude-opus-4-20250514",
-  sonnet: "claude-sonnet-4-20250514",
-  haiku: "claude-haiku-4-5-20251001",
-};
+import { ANTHROPIC_ALIASES as MODEL_MAP } from "../core/models.js";
 
 // ── Tool Pattern Matching ────────────────────────────────────────────
 // Supports patterns like "Bash(git*)" to restrict tool inputs.
@@ -366,13 +363,19 @@ export function createTaskTool(
 
       // Background mode: write output to file
       if (input.run_in_background) {
-        const outputDir = join(tmpdir(), "claude-code-core", "tasks");
+        const outputDir = join(tmpdir(), "openharness", "tasks");
         await mkdir(outputDir, { recursive: true });
         const outputFile = join(outputDir, `${agentId}.output`);
 
+        // Register in background task registry for TaskOutput/TaskStop
+        registerBackgroundAgent(agentId, outputFile, childAbort, input.description);
+
         // Launch in background (don't await) — scoped hooks cleaned up in runInBackground
-        runInBackground(loopParams, outputFile, agentId).catch((err) => {
+        runInBackground(loopParams, outputFile, agentId).then(() => {
+          markAgentFinished(agentId);
+        }).catch((err) => {
           const msg = err instanceof Error ? err.message : String(err);
+          markAgentFinished(agentId, msg);
           writeFile(
             outputFile,
             `\nAgent error: ${msg}`,
@@ -382,7 +385,7 @@ export function createTaskTool(
 
         yield {
           type: "result",
-          content: `Agent launched in background.\nagentId: ${agentId}\noutput_file: ${outputFile}`,
+          content: `Agent launched in background.\ntask_id: ${agentId}\noutput_file: ${outputFile}\nUse TaskOutput with task_id "${agentId}" to read output.`,
         };
         return;
       }

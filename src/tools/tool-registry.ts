@@ -28,6 +28,15 @@ export type PermissionCallback = (
   request: PermissionRequest
 ) => Promise<PermissionResult>;
 
+// ── User Question ───────────────────────────────────────────────────
+
+export interface UserQuestion {
+  question: string;
+  header: string;
+  options: Array<{ label: string; description: string }>;
+  multiSelect: boolean;
+}
+
 // ── Tool context ────────────────────────────────────────────────────
 
 export interface ToolContext {
@@ -70,6 +79,11 @@ export interface ToolContext {
   onPostToolUseFailure?: (toolName: string, input: unknown, error: string, isInterrupt: boolean) => Promise<string[] | void>;
   /** Called when a tool yields a progress update during execution. */
   onProgress?: (toolName: string, toolUseId: string, content: string) => void;
+  /**
+   * Callback to present interactive questions to the user.
+   * If undefined (subagent/pipe), tools should auto-select defaults.
+   */
+  requestUserInput?: (questions: UserQuestion[]) => Promise<Record<string, string>>;
 }
 
 export interface Tool {
@@ -142,6 +156,23 @@ function zodFieldToJsonSchema(field: z.ZodTypeAny): Record<string, unknown> {
       return { ...base, type: "array", items: zodFieldToJsonSchema(def.type) };
     case "ZodLiteral":
       return { ...base, type: typeof def.value, const: def.value };
+    case "ZodObject": {
+      const shape = def.shape?.() ?? {};
+      const props: Record<string, unknown> = {};
+      const req: string[] = [];
+      for (const [k, v] of Object.entries(shape)) {
+        const zodField = v as z.ZodTypeAny;
+        props[k] = zodFieldToJsonSchema(zodField);
+        if (!zodField.isOptional()) req.push(k);
+      }
+      const obj: Record<string, unknown> = { ...base, type: "object", properties: props };
+      if (req.length > 0) obj.required = req;
+      return obj;
+    }
+    case "ZodRecord": {
+      const valueSchema = zodFieldToJsonSchema(def.valueType);
+      return { ...base, type: "object", additionalProperties: valueSchema };
+    }
     default:
       return { ...base, type: "string" };
   }

@@ -12,7 +12,7 @@ import { homedir } from "os";
 import { execFile } from "child_process";
 import type { SlashCommand, CommandContext } from "../core/commands.js";
 
-const CONFIG_DIR = join(homedir(), ".claude-code-core");
+const CONFIG_DIR = join(homedir(), ".openharness");
 
 async function fileExists(path: string): Promise<boolean> {
   try {
@@ -48,48 +48,49 @@ export const configCommand: SlashCommand = {
   aliases: ["settings"],
   completions: ["edit"],
   async execute(args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
     if (args === "edit") {
       const settingsPath = join(CONFIG_DIR, "settings.json");
-      console.log(chalk.dim(`Opening ${settingsPath} in editor...`));
+      output(chalk.dim(`Opening ${settingsPath} in editor...`));
       openInEditor(settingsPath);
       return true;
     }
 
-    console.log(chalk.bold("\n  Configuration"));
-    console.log(chalk.dim("  " + "─".repeat(40)));
+    output(chalk.bold("\n  Configuration"));
+    output(chalk.dim("  " + "─".repeat(40)));
 
     // Provider & Model
     const provider = (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
-    console.log(chalk.dim(`  Provider:        ${provider}`));
-    console.log(chalk.dim(`  Model:           ${ctx.model}`));
-    console.log(chalk.dim(`  Permission mode: ${ctx.permissionMode}`));
+    output(chalk.dim(`  Provider:        ${provider}`));
+    output(chalk.dim(`  Model:           ${ctx.model}`));
+    output(chalk.dim(`  Permission mode: ${ctx.permissionMode}`));
 
     // API Keys (masked)
     if (provider === "anthropic") {
       const key = process.env.ANTHROPIC_API_KEY;
-      console.log(chalk.dim(`  API Key:         ${key ? "sk-..." + key.slice(-4) : chalk.red("not set")}`));
+      output(chalk.dim(`  API Key:         ${key ? "sk-..." + key.slice(-4) : chalk.red("not set")}`));
     } else {
       const key = process.env.OPENAI_API_KEY;
-      console.log(chalk.dim(`  API Key:         ${key ? "sk-..." + key.slice(-4) : chalk.red("not set")}`));
+      output(chalk.dim(`  API Key:         ${key ? "sk-..." + key.slice(-4) : chalk.red("not set")}`));
       if (process.env.OPENAI_BASE_URL) {
-        console.log(chalk.dim(`  Base URL:        ${process.env.OPENAI_BASE_URL}`));
+        output(chalk.dim(`  Base URL:        ${process.env.OPENAI_BASE_URL}`));
       }
     }
 
     // Thinking budget
     const thinkingBudget = process.env.CLAUDE_CODE_THINKING_BUDGET;
     if (thinkingBudget) {
-      console.log(chalk.dim(`  Thinking budget: ${thinkingBudget} tokens`));
+      output(chalk.dim(`  Thinking budget: ${thinkingBudget} tokens`));
     }
 
     // Config files
-    console.log();
-    console.log(chalk.dim("  Config files:"));
+    output();
+    output(chalk.dim("  Config files:"));
 
     const configFiles = [
       { name: "settings.json", path: join(CONFIG_DIR, "settings.json") },
       { name: "hooks.json (global)", path: join(CONFIG_DIR, "hooks.json") },
-      { name: "hooks.json (project)", path: join(ctx.cwd, ".claude-code-core", "hooks.json") },
+      { name: "hooks.json (project)", path: join(ctx.cwd, ".openharness", "hooks.json") },
       { name: "mcp.json (global)", path: join(CONFIG_DIR, "mcp.json") },
       { name: "mcp.json (project)", path: join(ctx.cwd, "mcp.json") },
       { name: "CLAUDE.md", path: join(ctx.cwd, "CLAUDE.md") },
@@ -98,12 +99,12 @@ export const configCommand: SlashCommand = {
     for (const file of configFiles) {
       const exists = await fileExists(file.path);
       const icon = exists ? chalk.green("✓") : chalk.dim("·");
-      console.log(`    ${icon} ${chalk.dim(file.name)}`);
+      output(`    ${icon} ${chalk.dim(file.name)}`);
     }
 
-    console.log();
-    console.log(chalk.dim("  Use /config edit to open settings.json in your editor."));
-    console.log();
+    output();
+    output(chalk.dim("  Use /config edit to open settings.json in your editor."));
+    output();
 
     return true;
   },

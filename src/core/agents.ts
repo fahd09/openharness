@@ -15,8 +15,8 @@
  * ```
  *
  * Agents are loaded from:
- * - ~/.claude-code-core/agents/ (user-level)
- * - <cwd>/.claude-code-core/agents/ (project-level, overrides user)
+ * - ~/.openharness/agents/ (user-level)
+ * - <cwd>/.openharness/agents/ (project-level, overrides user)
  */
 
 import { readFile, readdir } from "fs/promises";
@@ -174,8 +174,8 @@ export async function loadAgents(cwd: string): Promise<void> {
   agents.clear();
 
   const dirs = [
-    join(homedir(), ".claude-code-core", "agents"),
-    join(cwd, ".claude-code-core", "agents"),
+    join(homedir(), ".openharness", "agents"),
+    join(cwd, ".openharness", "agents"),
   ];
 
   for (const dir of dirs) {

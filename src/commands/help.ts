@@ -11,7 +11,8 @@ export function createHelpCommand(registry: CommandRegistry): SlashCommand {
     description: "Show available commands",
     category: "info",
     aliases: ["h", "?"],
-    async execute(_args: string, _ctx: CommandContext): Promise<boolean> {
+    async execute(_args: string, ctx: CommandContext): Promise<boolean> {
+      const output = ctx.output ?? console.log;
       const commands = registry.getAll();
 
       const categories: Record<string, SlashCommand[]> = {
@@ -34,23 +35,23 @@ export function createHelpCommand(registry: CommandRegistry): SlashCommand {
         other: "Other",
       };
 
-      console.log();
+      output("");
       for (const [cat, cmds] of Object.entries(categories)) {
         if (cmds.length === 0) continue;
-        console.log(chalk.bold(`  ${categoryLabels[cat]}`));
+        output(chalk.bold(`  ${categoryLabels[cat]}`));
         for (const cmd of cmds) {
           const aliases = cmd.aliases?.length
             ? chalk.dim(` (${cmd.aliases.map((a) => `/${a}`).join(", ")})`)
             : "";
-          console.log(
+          output(
             `    ${chalk.cyan(`/${cmd.name}`)}${aliases}  ${chalk.dim(cmd.description)}`
           );
         }
-        console.log();
+        output("");
       }
 
-      console.log(chalk.dim("  /<skill>    Run a loaded skill (e.g., /commit)"));
-      console.log();
+      output(chalk.dim("  /<skill>    Run a loaded skill (e.g., /commit)"));
+      output("");
 
       return true;
     },

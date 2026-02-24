@@ -4,32 +4,31 @@
  * Created once per runPrompt call. The bridge receives callbacks from the
  * agent loop (onTextDelta, onThinkingDelta, onToolProgress) and LoopEvents
  * from the event loop, dispatching the appropriate state actions.
+ *
+ * Delegates TodoWrite and Task tracking to focused sub-bridges.
  */
 
 import chalk from "chalk";
 import type { LoopEvent } from "../core/types.js";
-import type { AppAction, RetryInfo, TurnSummary, TaskItem, AgentInfo } from "./state.js";
+import type { AppAction, RetryInfo, TurnSummary } from "./state.js";
 import { StreamingRenderer } from "../core/markdown.js";
 import { computePatch, formatDiff, formatDiffSummary } from "../lib/diff.js";
 import { formatCost } from "../core/cost.js";
 import { isThinkingDisplayEnabled } from "../commands/thinking.js";
+import { TodoBridge } from "./bridges/todo-bridge.js";
+import { AgentBridge } from "./bridges/agent-bridge.js";
 
 export class EventBridge {
   public dispatch: (action: AppAction) => void;
   private streamRenderer: StreamingRenderer;
   private textStarted = false;
   private thinkingStarted = false;
-
-  // Track pending TodoWrite operations so we can map tool_result back to tasks
-  private pendingTodoOps = new Map<string, { operation: string; content?: string; id?: string; status?: string }>();
-
-  // Track running subagents for the AgentTree
-  private runningAgents = new Map<string, AgentInfo>();
+  private todoBridge = new TodoBridge();
+  private agentBridge = new AgentBridge();
 
   constructor(dispatch: (action: AppAction) => void) {
     this.dispatch = dispatch;
 
-    // StreamingRenderer writes rendered lines into state
     this.streamRenderer = new StreamingRenderer((text) => {
       this.dispatch({ type: "TEXT_DELTA", line: text });
     });
@@ -64,21 +63,8 @@ export class EventBridge {
     this.dispatch({ type: "SPINNER_STOP" });
     this.dispatch({ type: "TOOL_PROGRESS", toolUseId, content });
 
-    // Track subagent progress for AgentTree
     if (toolName === "Task") {
-      const existing = this.runningAgents.get(toolUseId);
-      if (existing) {
-        // Parse progress for tool use count (e.g., "[Bash] ..." lines)
-        const isToolResult = /^\[.+\]/.test(content);
-        const updated: AgentInfo = {
-          ...existing,
-          status: content.slice(0, 60),
-          toolUseCount: isToolResult ? existing.toolUseCount + 1 : existing.toolUseCount,
-          lastUpdate: Date.now(),
-        };
-        this.runningAgents.set(toolUseId, updated);
-        this.dispatch({ type: "AGENT_UPDATE", agent: updated });
-      }
+      this.agentBridge.trackProgress(toolUseId, content, this.dispatch);
     }
   };
 
@@ -86,13 +72,12 @@ export class EventBridge {
   handleEvent(event: LoopEvent): void {
     switch (event.type) {
       case "tool_use_start": {
-        if (!event.input) break;  // Skip streaming-time events without input
+        if (!event.input) break;
 
         const params = formatToolParams(event.toolName, event.input);
         let displayText = chalk.yellow(`\n\u23FA ${event.toolName}`) +
           (params ? chalk.dim(`(${params})`) : "") + "\n";
 
-        // Show diff preview for Edit tool
         if (event.toolName === "Edit" && event.input.old_string != null && event.input.new_string != null) {
           displayText += formatEditDiff(
             String(event.input.old_string),
@@ -101,29 +86,12 @@ export class EventBridge {
           );
         }
 
-        // Track TodoWrite operations for TaskList integration
         if (event.toolName === "TodoWrite") {
-          this.pendingTodoOps.set(event.toolUseId, {
-            operation: String(event.input.operation ?? ""),
-            content: event.input.content as string | undefined,
-            id: event.input.id as string | undefined,
-            status: event.input.status as string | undefined,
-          });
+          this.todoBridge.trackStart(event.toolUseId, event.input);
         }
 
-        // Track Task subagent launches for AgentTree
         if (event.toolName === "Task") {
-          const agent: AgentInfo = {
-            toolUseId: event.toolUseId,
-            description: String(event.input.description ?? event.input.subagent_type ?? "subagent"),
-            status: "Starting...",
-            tokenCount: 0,
-            toolUseCount: 0,
-            startTime: Date.now(),
-            lastUpdate: Date.now(),
-          };
-          this.runningAgents.set(event.toolUseId, agent);
-          this.dispatch({ type: "AGENT_UPDATE", agent });
+          this.agentBridge.trackStart(event.toolUseId, event.input, this.dispatch);
         }
 
         this.dispatch({
@@ -146,41 +114,27 @@ export class EventBridge {
           displayText,
         });
 
-        // Wire TodoWrite results → TaskList UI
         if (event.toolName === "TodoWrite" && !event.isError) {
-          const op = this.pendingTodoOps.get(event.toolUseId);
-          this.pendingTodoOps.delete(event.toolUseId);
-          if (op) {
-            this.handleTodoResult(op, event.result);
-          }
+          this.todoBridge.handleResult(event.toolUseId, event.result, this.dispatch);
         }
 
-        // Wire Task tool completion → AgentTree removal
         if (event.toolName === "Task") {
-          this.runningAgents.delete(event.toolUseId);
-          this.dispatch({ type: "AGENT_REMOVE", toolUseId: event.toolUseId });
+          this.agentBridge.trackComplete(event.toolUseId, this.dispatch);
         }
 
         break;
       }
 
       case "assistant": {
-        // Flush any buffered markdown
         this.streamRenderer.flush();
-
         this.dispatch({ type: "ASSISTANT_COMPLETE", usage: event.message.usage });
-
         this.textStarted = false;
         this.thinkingStarted = false;
         break;
       }
 
       case "thinking_delta":
-        // Already handled by onThinkingDelta callback
-        break;
-
       case "tool_progress":
-        // Already handled by onToolProgress callback
         break;
 
       case "system": {
@@ -223,7 +177,6 @@ export class EventBridge {
       case "result": {
         this.dispatch({ type: "SPINNER_STOP" });
 
-        // Show errors
         if (event.subtype !== "success" && event.resultText) {
           this.dispatch({
             type: "FREEZE_BLOCK",
@@ -235,22 +188,32 @@ export class EventBridge {
           });
         }
 
-        // Success summary — single compact line
         if (event.subtype === "success") {
           const dur = (event.durationMs / 1000).toFixed(1);
           const u = event.totalUsage;
           const inTok = u.input_tokens.toLocaleString();
           const outTok = u.output_tokens.toLocaleString();
           const cached = u.cache_read_input_tokens ?? 0;
-          const cacheStr = cached > 0 ? chalk.dim(` (${cached.toLocaleString()} cached)`) : "";
+          const cacheWrite = u.cache_creation_input_tokens ?? 0;
           const cost = formatCost(event.totalCostUsd);
+
+          // Build a detailed cache breakdown when caching is active
+          let cacheDetail = "";
+          if (cached > 0 || cacheWrite > 0) {
+            const parts: string[] = [];
+            if (cached > 0) parts.push(`${cached.toLocaleString()} cached`);
+            if (cacheWrite > 0) parts.push(`${cacheWrite.toLocaleString()} new`);
+            const fresh = u.input_tokens - cached - cacheWrite;
+            if (fresh > 0) parts.push(`${fresh.toLocaleString()} fresh`);
+            cacheDetail = chalk.dim(` [${parts.join(" · ")}]`);
+          }
 
           const line =
             chalk.dim(`\n\u273B ${dur}s \u00B7 `) +
             chalk.cyan(inTok) + chalk.dim(" in") +
+            cacheDetail +
             chalk.dim(" / ") +
             chalk.green(outTok) + chalk.dim(" out") +
-            cacheStr +
             chalk.dim(` \u00B7 ${cost}`);
 
           this.dispatch({
@@ -278,85 +241,20 @@ export class EventBridge {
   reset(): void {
     this.textStarted = false;
     this.thinkingStarted = false;
-    this.pendingTodoOps.clear();
+    this.todoBridge.clear();
+    this.agentBridge.clear();
     this.streamRenderer = new StreamingRenderer((text) => {
       this.dispatch({ type: "TEXT_DELTA", line: text });
     });
   }
-
-  /**
-   * Parse a TodoWrite result and dispatch TASK_UPDATE actions.
-   * Maps TodoWrite operations to TaskItem state changes.
-   */
-  private handleTodoResult(
-    op: { operation: string; content?: string; id?: string; status?: string },
-    result: string,
-  ): void {
-    switch (op.operation) {
-      case "add": {
-        // Result: "Added todo #1: content"
-        const match = result.match(/^Added todo #(\d+): (.+)$/);
-        if (match) {
-          const task: TaskItem = {
-            id: match[1],
-            subject: match[2],
-            status: "pending",
-          };
-          this.dispatch({ type: "TASK_UPDATE", task });
-        }
-        break;
-      }
-
-      case "update": {
-        // Result: "Updated todo #1: [status] content"
-        const match = result.match(/^Updated todo #(\d+): \[(\w+)\] (.+)$/);
-        if (match) {
-          const status = match[2] as "pending" | "in_progress" | "completed";
-          const task: TaskItem = {
-            id: match[1],
-            subject: match[3],
-            status,
-            activeForm: status === "in_progress" ? match[3] : undefined,
-            completedAt: status === "completed" ? Date.now() : undefined,
-          };
-          this.dispatch({ type: "TASK_UPDATE", task });
-        }
-        break;
-      }
-
-      case "delete": {
-        // Result: "Deleted todo #1: content"
-        const match = result.match(/^Deleted todo #(\d+)/);
-        if (match) {
-          // Mark as completed so it fades out in the UI
-          const task: TaskItem = {
-            id: match[1],
-            subject: "(deleted)",
-            status: "completed",
-            completedAt: Date.now(),
-          };
-          this.dispatch({ type: "TASK_UPDATE", task });
-        }
-        break;
-      }
-
-      case "clear": {
-        // All todos cleared — no individual updates needed,
-        // the tasks will just stop being referenced
-        break;
-      }
-    }
-  }
 }
 
-// ── Display Formatting Helpers (ported from index.ts) ──────────────
+// ── Display Formatting Helpers ──────────────────────────────────────
 
 function formatToolParams(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
     case "Read":
-      return String(input.file_path ?? "");
     case "Write":
-      return String(input.file_path ?? "");
     case "Edit":
       return String(input.file_path ?? "");
     case "Bash": {
@@ -380,6 +278,16 @@ function formatToolParams(toolName: string, input: Record<string, unknown>): str
       return String(input.query ?? "");
     case "NotebookEdit":
       return String(input.notebook_path ?? "");
+    case "TaskOutput":
+    case "TaskStop":
+      return String(input.task_id ?? input.shell_id ?? "");
+    case "AskUserQuestion": {
+      const questions = input.questions as Array<{ question?: string }> | undefined;
+      if (questions && questions.length > 0) {
+        return String(questions[0].question ?? "").slice(0, 60);
+      }
+      return "";
+    }
     default: {
       const firstVal = Object.values(input).find((v) => typeof v === "string");
       return firstVal ? String(firstVal).slice(0, 60) : "";
@@ -429,6 +337,18 @@ function formatToolResult(toolName: string, result: string, isError: boolean): s
     const lines = result.split("\n");
     const summaryLine = lines[0].startsWith("Done (") ? lines[0] : "Task complete";
     return chalk.dim(`  \u23BF ${summaryLine}`);
+  }
+
+  if (toolName === "AskUserQuestion") {
+    try {
+      const answers = JSON.parse(result);
+      const entries = Object.entries(answers);
+      if (entries.length > 0) {
+        const summary = entries.map(([q, a]) => `${q}: ${a}`).join("; ");
+        return chalk.dim(`  \u23BF Answers: ${summary.slice(0, 120)}`);
+      }
+    } catch {}
+    return chalk.dim(`  \u23BF AskUserQuestion (${result.length} chars)`);
   }
 
   return chalk.dim(`  \u23BF ${toolName} (${result.length} chars)`);

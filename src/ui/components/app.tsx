@@ -7,7 +7,7 @@
  * - Processing output during "processing" phase (spinner, streaming, tools)
  */
 
-import React, { useReducer, useImperativeHandle, forwardRef } from "react";
+import React, { useReducer, useImperativeHandle, forwardRef, useEffect, useRef } from "react";
 import { Static, Box, Text, useInput } from "ink";
 import chalk from "chalk";
 import type { AppAction, AppState, CompletedBlock } from "../state.js";
@@ -20,8 +20,12 @@ import { ToolProgress } from "./tool-progress.js";
 import { StatusLine } from "./status-line.js";
 import { TaskList } from "./task-list.js";
 import { AgentTree } from "./agent-tree.js";
-import { TextInput, type TextInputProps } from "./text-input.js";
+import { TextInput, type TextInputProps, type TextInputHandle } from "./text-input.js";
 import { PermissionPrompt } from "./permission-prompt.js";
+import { QuestionPrompt } from "./question-prompt.js";
+import { SessionSelector } from "./session-selector.js";
+import { ListSelector } from "./list-selector.js";
+import { FileSelector } from "./file-selector.js";
 
 // ── App Handle (exposed to index.tsx) ──────────────────────────────
 
@@ -34,7 +38,7 @@ export interface AppHandle {
 
 export interface AppProps {
   /** Called when user submits text input. */
-  onSubmit?: (value: string) => void;
+  onSubmit?: (value: string, mentions: string[]) => void;
   /** Called on Ctrl+C during input. */
   onInterrupt?: () => void;
   /** Called on Ctrl+C during processing (to abort the current operation). */
@@ -43,24 +47,31 @@ export interface AppProps {
   onExit?: () => void;
   /** Tab completer for slash commands. */
   completer?: TextInputProps["completer"];
+  /** Called when user types "@" to trigger file mention. */
+  onFileMention?: () => void;
 }
 
 // ── Component ──────────────────────────────────────────────────────
 
 export const App = forwardRef<AppHandle, AppProps>(function App(
-  { onSubmit, onInterrupt, onProcessingInterrupt, onExit, completer },
+  { onSubmit, onInterrupt, onProcessingInterrupt, onExit, completer, onFileMention },
   ref,
 ) {
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState);
+  const textInputRef = useRef<TextInputHandle>(null);
 
   useImperativeHandle(ref, () => ({
     dispatch,
     getState: () => state,
   }), [state]);
 
-  const isProcessing = state.phase === "processing" || state.phase === "permission";
+  const isProcessing = state.phase === "processing" || state.phase === "permission" || state.phase === "question";
   const isInput = state.phase === "input";
   const isPermission = state.phase === "permission";
+  const isQuestion = state.phase === "question";
+  const isSessionSelect = state.phase === "session-select";
+  const isListSelect = state.phase === "list-select";
+  const isFileSelect = state.phase === "file-select";
 
   // Keyboard handling during processing (not during permission prompts)
   useInput((_input, key) => {
@@ -75,7 +86,25 @@ export const App = forwardRef<AppHandle, AppProps>(function App(
     if (key.escape) {
       onProcessingInterrupt?.();
     }
-  }, { isActive: isProcessing && !isPermission });
+  }, { isActive: isProcessing && !isPermission && !isQuestion });
+
+  // Auto-dismiss interrupt hint after 3 seconds
+  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (state.interruptHint) {
+      if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+      hintTimerRef.current = setTimeout(() => {
+        dispatch({ type: "HIDE_INTERRUPT_HINT" });
+        hintTimerRef.current = null;
+      }, 3000);
+    }
+    return () => {
+      if (hintTimerRef.current) {
+        clearTimeout(hintTimerRef.current);
+        hintTimerRef.current = null;
+      }
+    };
+  }, [state.interruptHint]);
 
   return (
     <Box flexDirection="column">
@@ -113,11 +142,7 @@ export const App = forwardRef<AppHandle, AppProps>(function App(
           />
 
           {/* Status line */}
-          <StatusLine
-            retryInfo={state.retryInfo}
-            compactInfo={state.compactInfo}
-            turnSummary={state.turnSummary}
-          />
+          <StatusLine retryInfo={state.retryInfo} />
 
           {/* Spinner */}
           <SpinnerWidget
@@ -134,25 +159,84 @@ export const App = forwardRef<AppHandle, AppProps>(function App(
               dispatch={dispatch}
             />
           )}
+
+          {/* Question prompt */}
+          {isQuestion && state.pendingQuestion && (
+            <QuestionPrompt
+              question={state.pendingQuestion}
+              dispatch={dispatch}
+            />
+          )}
         </Box>
       )}
 
-      {/* Region C: always-visible input */}
-      {onSubmit && (
+      {/* Region C: session selector */}
+      {isSessionSelect && state.sessionList.length >= 0 && (
+        <SessionSelector
+          sessions={state.sessionList}
+          onSelect={(id) => {
+            state.sessionSelectResolve?.(id);
+            dispatch({ type: "SESSION_SELECT_END" });
+          }}
+          onCancel={() => {
+            state.sessionSelectResolve?.(null);
+            dispatch({ type: "SESSION_SELECT_END" });
+          }}
+        />
+      )}
+
+      {/* Region C2: generic list selector */}
+      {isListSelect && state.listSelectItems.length >= 0 && (
+        <ListSelector
+          items={state.listSelectItems}
+          header={state.listSelectHeader}
+          onSelect={(id) => {
+            state.listSelectResolve?.(id);
+            dispatch({ type: "LIST_SELECT_END" });
+          }}
+          onCancel={() => {
+            state.listSelectResolve?.(null);
+            dispatch({ type: "LIST_SELECT_END" });
+          }}
+        />
+      )}
+
+      {/* Region C3: file selector (@-mention) */}
+      {isFileSelect && state.fileSelectCwd && (
+        <FileSelector
+          cwd={state.fileSelectCwd}
+          onSelect={(filePath) => {
+            // Insert @mention into TextInput, then return to input phase
+            textInputRef.current?.insertMention(filePath);
+            dispatch({ type: "FILE_SELECT_END" });
+          }}
+          onCancel={() => {
+            dispatch({ type: "FILE_SELECT_END" });
+          }}
+        />
+      )}
+
+      {/* Region D: always-visible input (kept mounted during file-select for state) */}
+      {onSubmit && !isSessionSelect && !isListSelect && (
         <TextInput
+          ref={textInputRef}
           onSubmit={onSubmit}
           onInterrupt={onInterrupt}
           onExit={onExit}
           completer={completer}
+          onFileMention={onFileMention}
           isActive={isInput}
         />
       )}
 
-      {/* Status hint below input */}
-      {isProcessing ? (
+      {/* Transient interrupt hint */}
+      {state.interruptHint ? (
+        <Text>{chalk.dim(`  ${state.interruptHint}`)}</Text>
+      ) : /* Status hint below input */
+      isProcessing ? (
         <Text>{chalk.dim("  esc to interrupt")}</Text>
       ) : isInput ? (
-        <Text>{chalk.dim("  /help for commands")}</Text>
+        <Text>{chalk.dim("  /help for commands \u00B7 @ to mention file")}</Text>
       ) : null}
     </Box>
   );

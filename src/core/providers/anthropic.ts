@@ -168,11 +168,14 @@ export class AnthropicProvider implements LLMProvider {
   ): Promise<ProviderCompleteResult> {
     const client = getAnthropicClient();
 
-    const response = await client.messages.create({
-      model: params.model,
-      max_tokens: params.maxTokens,
-      messages: params.messages,
-    });
+    const response = await client.messages.create(
+      {
+        model: params.model,
+        max_tokens: params.maxTokens,
+        messages: params.messages,
+      },
+      params.signal ? { signal: params.signal } : undefined,
+    );
 
     const text =
       response.content

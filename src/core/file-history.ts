@@ -13,23 +13,31 @@ export interface FileSnapshot {
 
 class FileHistory {
   private snapshots: FileSnapshot[] = [];
+  /** Index: path → sorted list of indices into snapshots[]. O(1) path lookup. */
+  private pathIndex = new Map<string, number[]>();
 
   /** Save a snapshot of a file before it gets modified. */
   saveSnapshot(path: string, content: string): void {
+    const idx = this.snapshots.length;
     this.snapshots.push({
       path,
       content,
       timestamp: new Date().toISOString(),
     });
+    let indices = this.pathIndex.get(path);
+    if (!indices) {
+      indices = [];
+      this.pathIndex.set(path, indices);
+    }
+    indices.push(idx);
   }
 
   /** Get the last snapshot for a specific file, or the most recent of any file. */
   getLastSnapshot(path?: string): FileSnapshot | null {
     if (path) {
-      for (let i = this.snapshots.length - 1; i >= 0; i--) {
-        if (this.snapshots[i].path === path) return this.snapshots[i];
-      }
-      return null;
+      const indices = this.pathIndex.get(path);
+      if (!indices || indices.length === 0) return null;
+      return this.snapshots[indices[indices.length - 1]];
     }
     return this.snapshots.length > 0
       ? this.snapshots[this.snapshots.length - 1]
@@ -38,12 +46,12 @@ class FileHistory {
 
   /** Remove the last snapshot for a file (after undoing). */
   removeLastSnapshot(path: string): void {
-    for (let i = this.snapshots.length - 1; i >= 0; i--) {
-      if (this.snapshots[i].path === path) {
-        this.snapshots.splice(i, 1);
-        return;
-      }
-    }
+    const indices = this.pathIndex.get(path);
+    if (!indices || indices.length === 0) return;
+    const idx = indices.pop()!;
+    this.snapshots.splice(idx, 1);
+    // Rebuild index — splice shifts subsequent indices
+    this.rebuildIndex();
   }
 
   /** Get all snapshots. */
@@ -54,6 +62,20 @@ class FileHistory {
   /** Clear all snapshots. */
   clear(): void {
     this.snapshots.length = 0;
+    this.pathIndex.clear();
+  }
+
+  private rebuildIndex(): void {
+    this.pathIndex.clear();
+    for (let i = 0; i < this.snapshots.length; i++) {
+      const p = this.snapshots[i].path;
+      let indices = this.pathIndex.get(p);
+      if (!indices) {
+        indices = [];
+        this.pathIndex.set(p, indices);
+      }
+      indices.push(i);
+    }
   }
 }
 

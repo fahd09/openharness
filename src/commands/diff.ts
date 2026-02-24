@@ -10,16 +10,17 @@ export const diffCommand: SlashCommand = {
   description: "Show file changes made this session",
   category: "info",
   async execute(_args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
     const changes = ctx.fileTracker.getChanges();
 
     if (changes.length === 0) {
-      console.log(chalk.dim("No file changes recorded this session."));
+      output(chalk.dim("No file changes recorded this session."));
       return true;
     }
 
     const summary = ctx.fileTracker.getSummary();
-    console.log(chalk.bold("\n  File Changes"));
-    console.log(chalk.dim("  " + "─".repeat(50)));
+    output(chalk.bold("\n  File Changes"));
+    output(chalk.dim("  " + "─".repeat(50)));
 
     // Group by file
     const byFile = new Map<string, typeof changes>();
@@ -37,7 +38,7 @@ export const diffCommand: SlashCommand = {
       const totalAdded = fileChanges.reduce((s, c) => s + c.linesAdded, 0);
       const totalRemoved = fileChanges.reduce((s, c) => s + c.linesRemoved, 0);
 
-      console.log(
+      output(
         `  ${opLabel} ${chalk.dim(path)}` +
           (totalAdded || totalRemoved
             ? ` ${chalk.green(`+${totalAdded}`)} ${chalk.red(`-${totalRemoved}`)}`
@@ -45,14 +46,14 @@ export const diffCommand: SlashCommand = {
       );
     }
 
-    console.log(chalk.dim("  " + "─".repeat(50)));
-    console.log(
+    output(chalk.dim("  " + "─".repeat(50)));
+    output(
       chalk.dim(
         `  ${summary.filesChanged} file(s), ` +
           `${chalk.green(`+${summary.totalAdded}`)} ${chalk.red(`-${summary.totalRemoved}`)}`
       )
     );
-    console.log();
+    output("");
 
     return true;
   },

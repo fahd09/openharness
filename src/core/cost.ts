@@ -73,6 +73,60 @@ const PRICING: Record<string, ModelPricing> = {
     cacheWriteTokens: 1.1,
     cacheReadTokens: 0.55,
   },
+  "o3": {
+    inputTokens: 2,
+    outputTokens: 8,
+    cacheWriteTokens: 2,
+    cacheReadTokens: 1,
+  },
+  "o3-pro": {
+    inputTokens: 20,
+    outputTokens: 80,
+    cacheWriteTokens: 20,
+    cacheReadTokens: 10,
+  },
+  "o4-mini": {
+    inputTokens: 1.1,
+    outputTokens: 4.4,
+    cacheWriteTokens: 1.1,
+    cacheReadTokens: 0.55,
+  },
+  "o1-pro": {
+    inputTokens: 150,
+    outputTokens: 600,
+    cacheWriteTokens: 150,
+    cacheReadTokens: 75,
+  },
+  "gpt-4.1": {
+    inputTokens: 2,
+    outputTokens: 8,
+    cacheWriteTokens: 2,
+    cacheReadTokens: 1,
+  },
+  "gpt-4.1-mini": {
+    inputTokens: 0.4,
+    outputTokens: 1.6,
+    cacheWriteTokens: 0.4,
+    cacheReadTokens: 0.2,
+  },
+  "gpt-4.1-nano": {
+    inputTokens: 0.1,
+    outputTokens: 0.4,
+    cacheWriteTokens: 0.1,
+    cacheReadTokens: 0.05,
+  },
+  "gpt-5": {
+    inputTokens: 2,
+    outputTokens: 8,
+    cacheWriteTokens: 2,
+    cacheReadTokens: 1,
+  },
+  "gpt-5-mini": {
+    inputTokens: 0.4,
+    outputTokens: 1.6,
+    cacheWriteTokens: 0.4,
+    cacheReadTokens: 0.2,
+  },
   // ── Google Gemini ───────────────────────────────────────────
   "gemini-2.5-flash": {
     inputTokens: 0.30,
@@ -126,7 +180,7 @@ const DEFAULT_PRICING = PRICING.sonnet;
  * Resolve pricing for a model string.
  * Matches model ID substrings to pricing tiers.
  */
-function getPricing(model: string): ModelPricing {
+export function getPricing(model: string): ModelPricing {
   const lower = model.toLowerCase();
 
   // Anthropic models
@@ -142,12 +196,21 @@ function getPricing(model: string): ModelPricing {
   if (lower.includes("gemini-2.5-flash")) return PRICING["gemini-2.5-flash"];
   if (lower.includes("gemini-2.5-pro")) return PRICING["gemini-2.5-pro"];
 
-  // OpenAI models
+  // OpenAI models (order matters — check more specific first)
   if (lower.includes("gpt-4o-mini")) return PRICING["gpt-4o-mini"];
   if (lower.includes("gpt-4o")) return PRICING["gpt-4o"];
   if (lower.includes("gpt-4-turbo")) return PRICING["gpt-4-turbo"];
-  if (lower.includes("o3-mini")) return PRICING["o3-mini"];
+  if (lower.includes("gpt-4.1-nano")) return PRICING["gpt-4.1-nano"];
+  if (lower.includes("gpt-4.1-mini")) return PRICING["gpt-4.1-mini"];
+  if (lower.includes("gpt-4.1")) return PRICING["gpt-4.1"];
+  if (lower.includes("gpt-5-mini")) return PRICING["gpt-5-mini"];
+  if (lower.includes("gpt-5")) return PRICING["gpt-5"];
+  if (lower.includes("o1-pro")) return PRICING["o1-pro"];
   if (lower.includes("o1")) return PRICING["o1"];
+  if (lower.includes("o3-pro")) return PRICING["o3-pro"];
+  if (lower.includes("o3-mini")) return PRICING["o3-mini"];
+  if (lower.includes("o3")) return PRICING["o3"];
+  if (lower.includes("o4-mini")) return PRICING["o4-mini"];
 
   // Local models (Ollama, LM Studio, etc.)
   const baseUrl = process.env.OPENAI_BASE_URL ?? "";

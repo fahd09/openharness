@@ -7,7 +7,8 @@ export const agentsCommand: SlashCommand = {
   description: "List available agents (built-in and custom)",
   category: "info",
 
-  async execute(_args, _ctx) {
+  async execute(_args, ctx) {
+    const output = ctx.output ?? console.log;
     // Built-in agents
     const builtIn = [
       { name: "Bash", description: "Command execution specialist" },
@@ -16,29 +17,29 @@ export const agentsCommand: SlashCommand = {
       { name: "security-review", description: "Security audit with read-only git access" },
     ];
 
-    console.log(chalk.bold("\nBuilt-in Agents:"));
+    output(chalk.bold("\nBuilt-in Agents:"));
     for (const agent of builtIn) {
-      console.log(`  ${chalk.cyan(agent.name)} — ${agent.description}`);
+      output(`  ${chalk.cyan(agent.name)} — ${agent.description}`);
     }
 
     // Custom agents
     const custom = listAgents();
     if (custom.length > 0) {
-      console.log(chalk.bold("\nCustom Agents:"));
+      output(chalk.bold("\nCustom Agents:"));
       for (const agent of custom) {
         const meta: string[] = [];
         if (agent.model) meta.push(`model: ${agent.model}`);
         if (agent.tools) meta.push(`tools: ${agent.tools.join(", ")}`);
         if (agent.memory) meta.push(`memory: ${agent.memory}`);
         const metaStr = meta.length > 0 ? chalk.dim(` (${meta.join(", ")})`) : "";
-        console.log(`  ${chalk.cyan(agent.name)} — ${agent.description}${metaStr}`);
-        console.log(chalk.dim(`    source: ${agent.source}`));
+        output(`  ${chalk.cyan(agent.name)} — ${agent.description}${metaStr}`);
+        output(chalk.dim(`    source: ${agent.source}`));
       }
     } else {
-      console.log(chalk.dim("\nNo custom agents loaded. Create .claude-code-core/agents/*.md to add custom agents."));
+      output(chalk.dim("\nNo custom agents loaded. Create .openharness/agents/*.md to add custom agents."));
     }
 
-    console.log();
+    output();
     return true;
   },
 };

@@ -21,9 +21,9 @@ export function PermissionPrompt({ permission, dispatch }: PermissionPromptProps
     if (key.ctrl || key.meta) return;
 
     const ch = input.toLowerCase();
-    // Accept y/n/t/a, default to "y" for anything else
-    const resolved = ["y", "n", "t", "a"].includes(ch) ? ch : "y";
-    permission.resolve(resolved);
+    // Only accept y/n/t/a — ignore unknown keys
+    if (!["y", "n", "t", "a"].includes(ch)) return;
+    permission.resolve(ch);
     dispatch({ type: "PERMISSION_RESOLVED" });
   }, { isActive: true });
 

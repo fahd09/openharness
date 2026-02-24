@@ -6,7 +6,7 @@
  * All lines are preserved in state for freezing to Static on completion.
  */
 
-import React from "react";
+import React, { useMemo } from "react";
 import { Text } from "ink";
 
 interface Props {
@@ -15,15 +15,19 @@ interface Props {
 }
 
 export function StreamingText({ lines, maxVisible }: Props): React.ReactElement | null {
-  if (lines.length === 0) return null;
+  const rendered = useMemo(() => {
+    if (lines.length === 0) return null;
 
-  // Keep the live region compact: show at most half the terminal height
-  const termHeight = process.stdout.rows || 24;
-  const limit = maxVisible ?? Math.max(Math.floor(termHeight / 2), 6);
+    const termHeight = process.stdout.rows || 24;
+    const limit = maxVisible ?? Math.max(Math.floor(termHeight / 2), 6);
 
-  const visibleLines = lines.length > limit
-    ? lines.slice(-limit)
-    : lines;
+    const visibleLines = lines.length > limit
+      ? lines.slice(-limit)
+      : lines;
 
-  return <Text>{visibleLines.join("")}</Text>;
+    return visibleLines.join("");
+  }, [lines, maxVisible]);
+
+  if (rendered === null) return null;
+  return <Text>{rendered}</Text>;
 }

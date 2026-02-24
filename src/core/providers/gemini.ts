@@ -318,39 +318,11 @@ function mapFinishReason(reason: string | null | undefined): StopReason {
   }
 }
 
-// ── SSE Parser ───────────────────────────────────────────────────
+// Re-export generic SSE parser typed for Gemini chunks
+import { parseSSE as genericParseSSE } from "./sse-parser.js";
 
-async function* parseSSE(
-  reader: ReadableStreamDefaultReader<Uint8Array>
-): AsyncGenerator<GeminiStreamChunk> {
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith(":")) continue;
-
-      if (trimmed.startsWith("data: ")) {
-        const data = trimmed.slice(6);
-        if (data === "[DONE]") return;
-
-        try {
-          yield JSON.parse(data) as GeminiStreamChunk;
-        } catch {
-          // Skip malformed JSON
-        }
-      }
-    }
-  }
+function parseSSE(reader: ReadableStreamDefaultReader<Uint8Array>): AsyncGenerator<GeminiStreamChunk> {
+  return genericParseSSE<GeminiStreamChunk>(reader);
 }
 
 // ── Provider implementation ──────────────────────────────────────
@@ -571,6 +543,7 @@ export class GeminiProvider implements LLMProvider {
           maxOutputTokens: params.maxTokens,
         },
       }),
+      signal: params.signal,
     });
 
     if (!response.ok) {

@@ -11,16 +11,17 @@ export const loginCommand: SlashCommand = {
   description: "Authenticate with a provider",
   category: "session",
   completions: ["anthropic", "openai"],
-  async execute(args: string, _ctx: CommandContext): Promise<boolean> {
+  async execute(args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
     const provider = args.trim() || "anthropic";
-    console.log(chalk.dim(`Authenticating with ${provider}...`));
+    output(chalk.dim(`Authenticating with ${provider}...`));
 
     try {
       await login(provider);
-      console.log(chalk.green(`Authenticated with ${provider}.`));
+      output(chalk.green(`Authenticated with ${provider}.`));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.log(chalk.red(`Authentication failed: ${msg}`));
+      output(chalk.red(`Authentication failed: ${msg}`));
     }
 
     return true;
@@ -32,15 +33,16 @@ export const logoutCommand: SlashCommand = {
   description: "Remove saved authentication",
   category: "session",
   completions: ["anthropic", "openai"],
-  async execute(args: string, _ctx: CommandContext): Promise<boolean> {
+  async execute(args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
     const provider = args.trim() || "anthropic";
 
     try {
       await logout(provider);
-      console.log(chalk.dim(`Logged out from ${provider}.`));
+      output(chalk.dim(`Logged out from ${provider}.`));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.log(chalk.red(`Logout failed: ${msg}`));
+      output(chalk.red(`Logout failed: ${msg}`));
     }
 
     return true;

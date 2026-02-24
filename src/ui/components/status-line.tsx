@@ -5,12 +5,10 @@
 import React from "react";
 import { Text } from "ink";
 import chalk from "chalk";
-import type { RetryInfo, CompactInfo, TurnSummary } from "../state.js";
+import type { RetryInfo } from "../state.js";
 
 interface Props {
   retryInfo: RetryInfo | null;
-  compactInfo: CompactInfo | null;
-  turnSummary: TurnSummary | null;
 }
 
 export function StatusLine({ retryInfo }: Props): React.ReactElement | null {

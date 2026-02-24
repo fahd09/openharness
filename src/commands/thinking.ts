@@ -28,7 +28,8 @@ export const thinkingCommand: SlashCommand = {
   description: "Toggle extended thinking display on/off",
   category: "model",
   completions: ["on", "off"],
-  async execute(args: string, _ctx: CommandContext): Promise<boolean> {
+  async execute(args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
     if (args === "on") {
       thinkingDisplayEnabled = true;
     } else if (args === "off") {
@@ -39,9 +40,9 @@ export const thinkingCommand: SlashCommand = {
     }
 
     const status = thinkingDisplayEnabled ? "on" : "off";
-    console.log(chalk.dim(`Thinking display: ${status}`));
+    output(chalk.dim(`Thinking display: ${status}`));
     if (!thinkingDisplayEnabled) {
-      console.log(chalk.dim("  Thinking still runs, but output is hidden. Use /thinking to re-enable."));
+      output(chalk.dim("  Thinking still runs, but output is hidden. Use /thinking to re-enable."));
     }
     return true;
   },

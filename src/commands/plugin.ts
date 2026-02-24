@@ -11,7 +11,8 @@ export const pluginCommand: SlashCommand = {
   description: "Manage plugins (list/install/enable/disable)",
   category: "tools",
   completions: ["list", "install", "enable", "disable"],
-  async execute(args: string, _ctx: CommandContext): Promise<boolean> {
+  async execute(args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
     const parts = args.trim().split(/\s+/);
     const subcommand = parts[0]?.toLowerCase() || "list";
     const target = parts[1];
@@ -21,63 +22,63 @@ export const pluginCommand: SlashCommand = {
       case "list": {
         const plugins = manager.list();
         if (plugins.length === 0) {
-          console.log(chalk.dim("No plugins installed."));
-          console.log(
+          output(chalk.dim("No plugins installed."));
+          output(
             chalk.dim(
-              "Place plugin directories in ~/.claude-code-core/plugins/"
+              "Place plugin directories in ~/.openharness/plugins/"
             )
           );
         } else {
-          console.log(chalk.dim("\nPlugins:"));
+          output(chalk.dim("\nPlugins:"));
           for (const p of plugins) {
             const status = p.enabled
               ? chalk.green("enabled")
               : chalk.dim("disabled");
             const tag = p.builtin ? chalk.dim(" [built-in]") : "";
-            console.log(`  ${chalk.cyan(p.name)} ${status}${tag} — ${p.description}`);
+            output(`  ${chalk.cyan(p.name)} ${status}${tag} — ${p.description}`);
           }
         }
-        console.log();
+        output();
         break;
       }
 
       case "install": {
         if (!target) {
-          console.log(chalk.dim("Usage: /plugin install <path-or-name>"));
+          output(chalk.dim("Usage: /plugin install <path-or-name>"));
           break;
         }
         try {
           await manager.install(target);
-          console.log(chalk.dim(`Plugin installed: ${target}`));
+          output(chalk.dim(`Plugin installed: ${target}`));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          console.log(chalk.red(`Install failed: ${msg}`));
+          output(chalk.red(`Install failed: ${msg}`));
         }
         break;
       }
 
       case "enable": {
         if (!target) {
-          console.log(chalk.dim("Usage: /plugin enable <name>"));
+          output(chalk.dim("Usage: /plugin enable <name>"));
           break;
         }
         manager.enable(target);
-        console.log(chalk.dim(`Plugin enabled: ${target}`));
+        output(chalk.dim(`Plugin enabled: ${target}`));
         break;
       }
 
       case "disable": {
         if (!target) {
-          console.log(chalk.dim("Usage: /plugin disable <name>"));
+          output(chalk.dim("Usage: /plugin disable <name>"));
           break;
         }
         manager.disable(target);
-        console.log(chalk.dim(`Plugin disabled: ${target}`));
+        output(chalk.dim(`Plugin disabled: ${target}`));
         break;
       }
 
       default:
-        console.log(chalk.dim("Usage: /plugin [list|install|enable|disable] [name]"));
+        output(chalk.dim("Usage: /plugin [list|install|enable|disable] [name]"));
     }
 
     return true;

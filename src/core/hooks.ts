@@ -13,8 +13,8 @@
  * - PreCompact: Before conversation compaction
  *
  * Hooks are configured via:
- * - ~/.claude-code-core/hooks.json (global)
- * - .claude-code-core/hooks.json (project-local)
+ * - ~/.openharness/hooks.json (global)
+ * - .openharness/hooks.json (project-local)
  * - Programmatic registration
  *
  * Each hook can run shell commands or call registered functions.
@@ -155,14 +155,14 @@ export function unregisterScopedHooks(scopeId: string): void {
  * Load hooks from config files.
  *
  * Sources (in order):
- * 1. ~/.claude-code-core/hooks.json (global native)
- * 2. .claude-code-core/hooks.json (project native)
+ * 1. ~/.openharness/hooks.json (global native)
+ * 2. .openharness/hooks.json (project native)
  * 3. <cwd>/.claude/settings.local.json → hooks key (Claude Code compat)
  */
 export async function loadHooksFromConfig(cwd: string): Promise<void> {
   const paths = [
-    join(homedir(), ".claude-code-core", "hooks.json"),
-    join(cwd, ".claude-code-core", "hooks.json"),
+    join(homedir(), ".openharness", "hooks.json"),
+    join(cwd, ".openharness", "hooks.json"),
   ];
 
   for (const configPath of paths) {

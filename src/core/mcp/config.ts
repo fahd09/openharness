@@ -33,9 +33,9 @@ export interface McpConfig {
  */
 export async function loadMcpConfig(cwd: string): Promise<McpConfig> {
   const paths = [
-    join(homedir(), ".claude-code-core", "mcp.json"),
+    join(homedir(), ".openharness", "mcp.json"),
     join(homedir(), ".claude", "mcp.json"), // Claude Code user-level
-    join(cwd, ".claude-code-core", "mcp.json"),
+    join(cwd, ".openharness", "mcp.json"),
     join(cwd, ".claude", "mcp.json"), // Claude Code project-level
     join(cwd, "mcp.json"),
   ];

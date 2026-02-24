@@ -10,27 +10,28 @@ export const feedbackCommand: SlashCommand = {
   description: "Submit feedback or report a bug",
   category: "other",
   aliases: ["bug"],
-  async execute(args: string, _ctx: CommandContext): Promise<boolean> {
-    console.log(chalk.bold("\n  Feedback & Bug Reports"));
-    console.log(chalk.dim("  " + "─".repeat(40)));
-    console.log();
+  async execute(args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
+    output(chalk.bold("\n  Feedback & Bug Reports"));
+    output(chalk.dim("  " + "─".repeat(40)));
+    output("");
 
     if (args) {
-      console.log(chalk.dim("  Thank you for your feedback!"));
-      console.log(chalk.dim(`  "${args}"`));
-      console.log();
-      console.log(chalk.dim("  To file a formal report, please visit:"));
+      output(chalk.dim("  Thank you for your feedback!"));
+      output(chalk.dim(`  "${args}"`));
+      output("");
+      output(chalk.dim("  To file a formal report, please visit:"));
     } else {
-      console.log(chalk.dim("  To report issues or provide feedback:"));
+      output(chalk.dim("  To report issues or provide feedback:"));
     }
 
-    console.log(chalk.cyan("  https://github.com/anthropics/claude-code/issues"));
-    console.log();
-    console.log(chalk.dim("  When reporting bugs, please include:"));
-    console.log(chalk.dim("    - Steps to reproduce"));
-    console.log(chalk.dim("    - Expected vs actual behavior"));
-    console.log(chalk.dim("    - Model and provider in use (/status for details)"));
-    console.log();
+    output(chalk.cyan("  https://github.com/anthropics/claude-code/issues"));
+    output("");
+    output(chalk.dim("  When reporting bugs, please include:"));
+    output(chalk.dim("    - Steps to reproduce"));
+    output(chalk.dim("    - Expected vs actual behavior"));
+    output(chalk.dim("    - Model and provider in use (/status for details)"));
+    output("");
 
     return true;
   },

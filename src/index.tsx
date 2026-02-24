@@ -1,6 +1,5 @@
 #!/usr/bin/env npx tsx
 import "dotenv/config"; // Load .env before anything else
-import * as readline from "readline";
 import chalk from "chalk";
 import React, { createRef } from "react";
 import { render } from "ink";
@@ -15,13 +14,11 @@ import { createTaskTool } from "./tools/task.js";
 import { agentLoop } from "./core/agent-loop.js";
 import { buildSystemPrompt } from "./prompt/system-prompt.js";
 import type { ConversationMessage, SystemPrompt } from "./core/types.js";
-import { CostTracker, formatCost } from "./core/cost.js";
-import { renderMarkdown } from "./core/markdown.js";
+import { CostTracker } from "./core/cost.js";
 import {
   resolvePermissionMode,
   createPermissionWrapper,
   loadProjectPermissions,
-  type PermissionMode,
 } from "./core/permission-modes.js";
 import {
   newSessionId,
@@ -42,7 +39,6 @@ import { CommandRegistry, type CommandContext } from "./core/commands.js";
 import { createHelpCommand } from "./commands/help.js";
 import { FileChangeTracker } from "./core/file-tracker.js";
 import { getFileHistory } from "./core/file-history.js";
-import { getSuggestions } from "./core/suggestions.js";
 import { initializeMcpServers, disconnectMcpServers } from "./core/mcp/index.js";
 import { getPluginManager } from "./core/plugins/index.js";
 import {
@@ -50,130 +46,33 @@ import {
   memoryPlugin,
   commandsPlugin,
   skillsPlugin,
+  cliRgPlugin,
+  cliFdPlugin,
+  cliFzfPlugin,
+  cliJqPlugin,
+  cliYqPlugin,
+  cliAstGrepPlugin,
+  cliBatPlugin,
+  cliGitPlugin,
+  cliDeltaPlugin,
+  cliGhPlugin,
 } from "./plugins/index.js";
-import { isImagePath, loadImageAsBlock, detectImagePaths } from "./core/image.js";
-import { readFile } from "fs/promises";
+import { buildContentWithImages } from "./core/image.js";
 import { App, type AppHandle } from "./ui/components/app.js";
 import { EventBridge } from "./ui/event-bridge.js";
-import { startCapture, stopCapture } from "./ui/console-capture.js";
 import type { TextInputProps } from "./ui/components/text-input.js";
 import { icons } from "./ui/theme.js";
 
-// ── CLI Argument Parsing (same as legacy) ──────────────────────────
-
-interface CliOptions {
-  model: string;
-  maxTurns?: number;
-  prompt?: string;
-  systemPrompt?: string;
-  thinkingBudget?: number;
-  permissionMode?: string;
-  resume?: string;
-  verbose: boolean;
-}
-
-function getDefaultModel(): string {
-  const provider = (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
-  if (provider === "openai" || provider === "openai-compat" || provider === "openai_compat") {
-    return process.env.OPENAI_MODEL || "gpt-4o";
-  }
-  return "claude-sonnet-4-20250514";
-}
-
-function parseArgs(): CliOptions {
-  const args = process.argv.slice(2);
-  const opts: CliOptions = {
-    model: getDefaultModel(),
-    verbose: false,
-  };
-
-  for (let i = 0; i < args.length; i++) {
-    switch (args[i]) {
-      case "--model":
-      case "-m":
-        opts.model = resolveModel(args[++i] ?? "sonnet");
-        break;
-      case "--max-turns":
-        opts.maxTurns = parseInt(args[++i], 10);
-        break;
-      case "-p":
-      case "--prompt":
-        opts.prompt = args[++i];
-        break;
-      case "--system-prompt":
-        opts.systemPrompt = args[++i];
-        break;
-      case "--thinking-budget":
-        opts.thinkingBudget = parseInt(args[++i], 10);
-        break;
-      case "--permission-mode":
-        opts.permissionMode = args[++i];
-        break;
-      case "--resume":
-      case "-r":
-        opts.resume = args[++i];
-        break;
-      case "--verbose":
-      case "-v":
-        opts.verbose = true;
-        break;
-      case "--help":
-      case "-h":
-        printHelp();
-        process.exit(0);
-    }
-  }
-
-  return opts;
-}
-
-function resolveModel(input: string): string {
-  const provider = (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
-
-  const anthropicAliases: Record<string, string> = {
-    opus: "claude-opus-4-20250514",
-    sonnet: "claude-sonnet-4-20250514",
-    haiku: "claude-haiku-4-5-20251001",
-  };
-
-  const openaiAliases: Record<string, string> = {
-    "4o": "gpt-4o",
-    "4o-mini": "gpt-4o-mini",
-    "4-turbo": "gpt-4-turbo",
-  };
-
-  if (provider === "openai" || provider === "openai-compat" || provider === "openai_compat") {
-    return openaiAliases[input] ?? input;
-  }
-
-  return anthropicAliases[input] ?? input;
-}
-
-function printHelp(): void {
-  console.log(`
-${chalk.bold("claude-code-core")} — AI-powered coding assistant with multi-provider support
-
-${chalk.dim("Usage:")}
-  npx tsx src/index.tsx [options]
-  npx tsx src/index.tsx -p "your prompt here"
-
-${chalk.dim("Options:")}
-  -m, --model <model>        Model to use (opus/sonnet/haiku or full ID like gpt-4o)
-  -p, --prompt <text>        One-shot mode: run prompt and exit
-  --max-turns <n>            Max agentic turns per interaction
-  --thinking-budget <n>      Extended thinking budget in tokens (min 1024)
-  --permission-mode <mode>   Permission mode: default/acceptEdits/bypassPermissions/plan
-  -r, --resume <id>          Resume a previous session by ID
-  --system-prompt <text>     Custom system prompt override
-  -v, --verbose              Verbose output
-  -h, --help                 Show this help
-
-${chalk.dim("Provider Selection (via environment):")}
-  LLM_PROVIDER=anthropic     Use Anthropic Claude (default)
-  LLM_PROVIDER=openai        Use OpenAI GPT models
-  LLM_PROVIDER=openai-compat Use any OpenAI-compatible API
-`);
-}
+// Extracted CLI modules
+import { parseArgs, type CliOptions } from "./cli/args.js";
+import {
+  createPipePermissionPrompt,
+  createInkPermissionPrompt,
+  createInkUserInputPrompt,
+  createPipeUserInputPrompt,
+} from "./cli/permissions.js";
+import { getWelcomeInfo, printWelcomeBanner } from "./cli/welcome.js";
+import { runPipeMode } from "./cli/pipe-mode.js";
 
 // ── Shared Setup ──────────────────────────────────────────────────
 
@@ -200,125 +99,6 @@ function resolveThinkingBudget(cliValue?: number): number | undefined {
   return undefined;
 }
 
-// ── Permission Prompt ────────────────────────────────────────────
-
-/**
- * Creates a permission prompt for pipe/one-shot mode (uses temporary readline).
- */
-function createPipePermissionPrompt(): (
-  request: PermissionRequest
-) => Promise<PermissionResult> {
-  const approvedTools = new Set<string>();
-
-  return (request: PermissionRequest): Promise<PermissionResult> => {
-    if (approvedTools.has(request.toolName)) {
-      return Promise.resolve("allow");
-    }
-
-    return new Promise((resolve) => {
-      const promptText =
-        chalk.dim("  Allow? ") +
-        chalk.bold("[y]es / [n]o / allow [t]ool / [a]llow all: ");
-
-      process.stdout.write(promptText);
-      const tempRl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-        terminal: false,
-      });
-      tempRl.once("line", (answer) => {
-        tempRl.close();
-        const a = answer.trim().toLowerCase();
-        switch (a) {
-          case "y": case "yes": resolve("allow"); break;
-          case "t": case "tool": approvedTools.add(request.toolName); resolve("allow"); break;
-          case "a": case "allow": case "allow all": resolve("allow_all"); break;
-          case "n": case "no": resolve("deny"); break;
-          default: resolve("allow"); break;
-        }
-      });
-      tempRl.once("close", () => resolve("deny"));
-    });
-  };
-}
-
-/**
- * Creates a permission prompt for Ink interactive mode.
- * Dispatches REQUEST_PERMISSION into App state; the PermissionPrompt
- * component handles keypress capture via Ink's useInput hook.
- */
-function createInkPermissionPrompt(
-  getDispatch: () => (action: import("./ui/state.js").AppAction) => void,
-): (request: PermissionRequest) => Promise<PermissionResult> {
-  const approvedTools = new Set<string>();
-
-  return (request: PermissionRequest): Promise<PermissionResult> => {
-    if (approvedTools.has(request.toolName)) {
-      return Promise.resolve("allow");
-    }
-
-    return new Promise((resolve) => {
-      getDispatch()({
-        type: "REQUEST_PERMISSION",
-        permission: {
-          toolName: request.toolName,
-          resolve: (key: string) => {
-            switch (key) {
-              case "y": resolve("allow"); break;
-              case "t": approvedTools.add(request.toolName); resolve("allow"); break;
-              case "a": resolve("allow_all"); break;
-              case "n": resolve("deny"); break;
-              default: resolve("allow"); break;
-            }
-          },
-        },
-      });
-    });
-  };
-}
-
-// ── Welcome Info Gathering ─────────────────────────────────────────
-
-async function getWelcomeInfo(
-  opts: CliOptions,
-  permissionMode: PermissionMode,
-  cwd: string,
-  sessionId: string,
-  isResumed: boolean,
-) {
-  const provider = (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
-
-  let version = "0.1.0";
-  try {
-    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf-8"));
-    version = pkg.version ?? version;
-  } catch {}
-
-  let gitBranch = "";
-  try {
-    const { execFile: execFileCb } = await import("child_process");
-    gitBranch = await new Promise((resolve) => {
-      execFileCb("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd }, (err, stdout) => {
-        resolve(err ? "" : stdout.trim());
-      });
-    });
-  } catch {}
-
-  const suggestions = isResumed ? [] : await getSuggestions(cwd);
-
-  return {
-    version,
-    model: opts.model,
-    provider,
-    permissionMode,
-    cwd,
-    gitBranch,
-    sessionId,
-    isResumed,
-    suggestions,
-  };
-}
-
 // ── runPrompt (Ink mode) ─────────────────────────────────────────
 
 async function runPromptInk(
@@ -330,29 +110,13 @@ async function runPromptInk(
   cwd: string,
   signal: AbortSignal,
   requestPermission: ((request: PermissionRequest) => Promise<PermissionResult>) | undefined,
+  requestUserInput: ((questions: import("./tools/tool-registry.js").UserQuestion[]) => Promise<Record<string, string>>) | undefined,
   sessionId: string | undefined,
   costTracker: CostTracker | undefined,
   fileTracker: FileChangeTracker | undefined,
   bridge: EventBridge,
 ): Promise<string | undefined> {
-  // Detect image paths in user input
-  const imagePaths = detectImagePaths(userInput);
-  let userContent: string | Array<{ type: string; [key: string]: unknown }> = userInput;
-
-  if (imagePaths.length > 0) {
-    const contentBlocks: Array<{ type: string; [key: string]: unknown }> = [
-      { type: "text", text: userInput },
-    ];
-    for (const imgPath of imagePaths) {
-      try {
-        const imageBlock = await loadImageAsBlock(imgPath);
-        contentBlocks.push(imageBlock as { type: string; [key: string]: unknown });
-      } catch {}
-    }
-    if (contentBlocks.length > 1) {
-      userContent = contentBlocks;
-    }
-  }
+  const userContent = await buildContentWithImages(userInput);
 
   // Add user message
   const userMsg: ConversationMessage = {
@@ -395,6 +159,7 @@ async function runPromptInk(
       maxTurns: opts.maxTurns,
       thinkingBudgetTokens: thinkingBudget,
       requestPermission: dynamicPermission,
+      requestUserInput,
       signal,
       cwd,
       sessionId,
@@ -486,23 +251,28 @@ async function main(): Promise<void> {
   const pluginManager = getPluginManager();
   pluginManager.setCwd(cwd);
 
-  // Register built-in plugins
   pluginManager.registerBuiltin(corePromptPlugin);
   pluginManager.registerBuiltin(memoryPlugin);
   pluginManager.registerBuiltin(commandsPlugin);
   pluginManager.registerBuiltin(skillsPlugin);
 
-  // Discover external (legacy) plugins
-  await pluginManager.discoverExternal();
+  // CLI tool plugins — git/gh essential (enabled), rest opt-in (disabled)
+  pluginManager.registerBuiltin(cliGitPlugin);
+  pluginManager.registerBuiltin(cliGhPlugin);
+  pluginManager.registerBuiltin(cliRgPlugin, false);
+  pluginManager.registerBuiltin(cliFdPlugin, false);
+  pluginManager.registerBuiltin(cliFzfPlugin, false);
+  pluginManager.registerBuiltin(cliJqPlugin, false);
+  pluginManager.registerBuiltin(cliYqPlugin, false);
+  pluginManager.registerBuiltin(cliAstGrepPlugin, false);
+  pluginManager.registerBuiltin(cliBatPlugin, false);
+  pluginManager.registerBuiltin(cliDeltaPlugin, false);
 
-  // Core lifecycle: hooks and agents (stay as core, not plugins)
+  await pluginManager.discoverExternal();
   await loadHooksFromConfig(cwd);
   await loadAgents(cwd);
-
-  // Initialize all plugins (skills loaded here via skills-plugin)
   await pluginManager.init();
 
-  // Register plugin-provided tools into the tool registry
   for (const tool of pluginManager.getTools()) {
     registry.register(tool);
   }
@@ -515,9 +285,11 @@ async function main(): Promise<void> {
   const sessionId = opts.resume ?? newSessionId();
   await executeHooks({ event: "SessionStart", sessionId, cwd });
 
-  const systemPrompt: SystemPrompt = opts.systemPrompt
-    ? [{ text: opts.systemPrompt, cacheHint: false }]
+  const promptResult = opts.systemPrompt
+    ? { segments: [{ text: opts.systemPrompt, cacheHint: false }], details: [] }
     : await buildSystemPrompt(cwd, registry.getAll().map((t) => t.name), pluginManager);
+  const systemPrompt: SystemPrompt = promptResult.segments;
+  const promptSegmentDetails = promptResult.details;
 
   const costTracker = new CostTracker();
   const fileTracker = new FileChangeTracker();
@@ -557,7 +329,6 @@ async function main(): Promise<void> {
   const isTTY = process.stdin.isTTY && !opts.prompt;
 
   // For Ink mode, we need a dispatch function that routes to the App.
-  // It starts as a no-op and gets wired up when the App is rendered.
   let inkDispatch: (action: import("./ui/state.js").AppAction) => void = () => {};
   const getInkDispatch = () => inkDispatch;
 
@@ -566,151 +337,34 @@ async function main(): Promise<void> {
     : createPipePermissionPrompt();
   const permissionPrompt = createPermissionWrapper(permissionMode, basePermissionPrompt, projectPermissions);
 
+  const userInputPrompt = isTTY
+    ? createInkUserInputPrompt(getInkDispatch)
+    : createPipeUserInputPrompt();
+
   // Build command registry from plugin-provided commands + help
   const commandRegistry = new CommandRegistry();
   for (const cmd of pluginManager.getCommands()) {
     commandRegistry.register(cmd);
   }
-  // Help must be last — it needs the registry to list all commands
   commandRegistry.register(createHelpCommand(commandRegistry));
 
-  // ── One-shot / pipe mode — use legacy rendering ──────────────────
+  // ── One-shot / pipe mode ────────────────────────────────────────
 
   if (opts.prompt || !process.stdin.isTTY) {
-    // Non-interactive: run prompt with legacy direct stdout writes
-    // Import and run the legacy entry point behavior
-    const { Spinner } = await import("./lib/spinner.js");
-    const { StreamingRenderer } = await import("./core/markdown.js");
-    const { isThinkingDisplayEnabled } = await import("./commands/thinking.js");
-    const { isFastMode } = await import("./commands/fast.js");
-
-    const userInput = opts.prompt ?? "";
-    if (!userInput) {
-      console.error(chalk.red("No prompt provided. Use -p to specify a prompt."));
-      process.exit(1);
-    }
-
-    const imagePaths = detectImagePaths(userInput);
-    let userContent: string | Array<{ type: string; [key: string]: unknown }> = userInput;
-    if (imagePaths.length > 0) {
-      const contentBlocks: Array<{ type: string; [key: string]: unknown }> = [
-        { type: "text", text: userInput },
-      ];
-      for (const imgPath of imagePaths) {
-        try {
-          const imageBlock = await loadImageAsBlock(imgPath);
-          contentBlocks.push(imageBlock as { type: string; [key: string]: unknown });
-        } catch {}
-      }
-      if (contentBlocks.length > 1) {
-        userContent = contentBlocks;
-      }
-    }
-
-    const userMsg: ConversationMessage = {
-      type: "user",
-      role: "user",
-      content: typeof userContent === "string" ? userContent : userInput,
-      uuid: uuid(),
-      timestamp: timestamp(),
-    };
-    messages.push(userMsg);
-
-    const thinkingBudget = resolveThinkingBudget(opts.thinkingBudget);
-    let textStarted = false;
-    let thinkingStarted = false;
-    let finalResultText: string | undefined;
-    const streamRenderer = new StreamingRenderer((text) => process.stdout.write(text));
-    const spinner = new Spinner();
-    spinner.start("Thinking...");
-
-    try {
-      for await (const event of agentLoop({
-        messages,
-        systemPrompt,
-        tools: registry,
-        model: opts.model,
-        maxTurns: opts.maxTurns,
-        thinkingBudgetTokens: thinkingBudget,
-        requestPermission: permissionPrompt,
-        signal: abortController.signal,
-        cwd,
-        sessionId,
-        costTracker,
-        onTextDelta: (text) => {
-          if (spinner.running) spinner.stop();
-          if (thinkingStarted) {
-            thinkingStarted = false;
-            process.stdout.write(chalk.dim("\n\u273B Thinking complete\n"));
-          }
-          if (!textStarted) {
-            textStarted = true;
-            process.stdout.write("\n");
-          }
-          streamRenderer.push(text);
-        },
-        onThinkingDelta: (thinking) => {
-          if (!isThinkingDisplayEnabled()) return;
-          if (spinner.running) spinner.stop();
-          if (!thinkingStarted) {
-            thinkingStarted = true;
-            process.stdout.write(chalk.dim("\n\uD83D\uDCAD "));
-          }
-          process.stdout.write(chalk.dim(thinking));
-        },
-        onToolProgress: (_toolName, _toolUseId, content) => {
-          if (spinner.running) spinner.stop();
-          const cols = process.stdout.columns || 80;
-          const truncated = content.length > cols - 4 ? content.slice(0, cols - 7) + "..." : content;
-          process.stdout.write(`\r\x1b[K${chalk.dim(`  \u22EF ${truncated}`)}`);
-        },
-      })) {
-        if (event.type === "result") {
-          finalResultText = event.resultText;
-        }
-        if (event.type === "assistant") {
-          streamRenderer.flush();
-          messages.push(event.message);
-        }
-      }
-    } finally {
-      if (spinner.running) spinner.stop();
-    }
-
-    if (finalResultText) {
-      console.log("\n" + renderMarkdown(finalResultText));
-    }
-    await disconnectMcpServers();
-    process.exit(0);
+    await runPipeMode(
+      opts, messages, systemPrompt, registry,
+      abortController.signal, cwd, sessionId, costTracker, permissionPrompt,
+    );
+    return;
   }
 
   // ── Interactive TTY mode — Ink rendering ──────────────────────────
 
-  // Print welcome banner directly to stdout (not through Ink).
-  {
-    const w = await getWelcomeInfo(opts, permissionMode, cwd, sessionId, isResumed);
-    console.log();
-    console.log(chalk.bold("claude-code-core") + chalk.dim(` v${w.version}`));
-    console.log(chalk.dim(`  Model:    ${w.model}`) + chalk.dim(` (${w.provider})`));
-    console.log(chalk.dim(`  Mode:     ${w.permissionMode}`));
-    console.log(chalk.dim(`  CWD:      ${w.cwd}`));
-    if (w.gitBranch) console.log(chalk.dim(`  Branch:   ${w.gitBranch}`));
-    console.log(chalk.dim(`  Session:  ${w.sessionId}${w.isResumed ? " (resumed)" : ""}`));
-    if (!w.isResumed && w.suggestions.length > 0) {
-      console.log();
-      console.log(chalk.dim("  Try:"));
-      for (const s of w.suggestions) {
-        console.log(chalk.dim(`    ${chalk.cyan(">")} ${s}`));
-      }
-    }
-    console.log();
-    console.log(chalk.dim("Type your message. /help for commands. Ctrl+C to interrupt.\n"));
-  }
+  const welcomeInfo = await getWelcomeInfo(opts, permissionMode, cwd, sessionId, isResumed);
+  printWelcomeBanner(welcomeInfo);
 
-  // Create the App ref for imperative dispatch
   const appRef = createRef<AppHandle>();
 
-  // Tab completion function (passed to TextInput via App)
   const completer: TextInputProps["completer"] = (line: string): [string[], string] => {
     if (line.startsWith("/") && line.includes(" ")) {
       const spaceIdx = line.indexOf(" ");
@@ -738,38 +392,28 @@ async function main(): Promise<void> {
     return [[], line];
   };
 
-  // Track whether we're currently processing (to prevent double-submit)
   let isProcessing = false;
-
-  // Current abort controller — set during processing, null otherwise
   let currentAbort: AbortController | null = null;
 
-  // Create the EventBridge wired to App's dispatch
   const getDispatch = () => {
     if (appRef.current) return appRef.current.dispatch;
     return (_action: any) => {};
   };
 
-  // Wire the Ink permission prompt dispatch to the App
   inkDispatch = (action) => getDispatch()(action);
 
   const bridge = new EventBridge((action) => getDispatch()(action));
 
-  // Start console capture so command output goes through Ink
-  startCapture((action) => getDispatch()(action));
-
-  // Shared runPrompt function for commands
   const runPromptForCommand = async (prompt: string): Promise<string | undefined> => {
     return runPromptInk(
       prompt, messages, systemPrompt, registry,
       { ...opts, model: currentModel }, cwd,
       new AbortController().signal,
-      permissionPrompt, sessionId, costTracker, fileTracker,
+      permissionPrompt, userInputPrompt, sessionId, costTracker, fileTracker,
       bridge,
     );
   };
 
-  // Build CommandContext (no readline — rl is undefined in Ink mode)
   const buildCommandContext = (): CommandContext => ({
     messages,
     model: currentModel,
@@ -777,6 +421,7 @@ async function main(): Promise<void> {
     costTracker,
     fileTracker,
     systemPrompt,
+    promptSegmentDetails,
     cwd,
     sessionId,
     toolRegistry: registry,
@@ -789,16 +434,39 @@ async function main(): Promise<void> {
         text,
       });
     },
+    dispatch: (action) => getDispatch()(action),
   });
 
-  // ── Input handler — called by TextInput's onSubmit ──────────────
+  // ── Input handler ──────────────────────────────────────────────
 
-  const handleSubmit = async (userInput: string): Promise<void> => {
+  const handleSubmit = async (userInput: string, mentions?: string[]): Promise<void> => {
     if (isProcessing) return;
     const trimmed = userInput.trim();
     if (!trimmed) return;
 
-    // Freeze the user's input as a visible block above processing output
+    // If there are file mentions, read their contents and append to the prompt
+    let fullInput = userInput;
+    if (mentions && mentions.length > 0) {
+      const { readFile } = await import("fs/promises");
+      const { join, isAbsolute } = await import("path");
+      const fileBlocks: string[] = [];
+      for (const filePath of mentions) {
+        try {
+          const absPath = isAbsolute(filePath) ? filePath : join(cwd, filePath);
+          const content = await readFile(absPath, "utf-8");
+          const maxChars = 100_000;
+          const truncated = content.length > maxChars
+            ? content.slice(0, maxChars) + "\n\n... (truncated)"
+            : content;
+          fileBlocks.push(`<file path="${filePath}">\n${truncated}\n</file>`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          fileBlocks.push(`<file path="${filePath}">\nError reading file: ${msg}\n</file>`);
+        }
+      }
+      fullInput = userInput + "\n\n" + fileBlocks.join("\n\n");
+    }
+
     getDispatch()({
       type: "FREEZE_BLOCK",
       block: {
@@ -808,20 +476,14 @@ async function main(): Promise<void> {
       },
     });
 
-    // Yield a tick so Ink renders the frozen user input before any command output
     await new Promise((r) => setTimeout(r, 0));
 
-    // Handle slash commands
     if (trimmed.startsWith("/")) {
       const cmdCtx = buildCommandContext();
       const cmdResult = await commandRegistry.execute(trimmed, cmdCtx);
 
-      if (cmdResult !== null) {
-        // Command handled. Phase stays "input" — TextInput re-renders.
-        return;
-      }
+      if (cmdResult !== null) return;
 
-      // Check for skill invocation
       const parts = trimmed.split(/\s+/, 2);
       const skill = getSkill(parts[0]);
       if (skill) {
@@ -850,7 +512,7 @@ async function main(): Promise<void> {
           await runPromptInk(
             skillPrompt, messages, systemPrompt, registry,
             { ...opts, model: currentModel }, cwd,
-            interactionAbort.signal, permissionPrompt, sessionId,
+            interactionAbort.signal, permissionPrompt, userInputPrompt, sessionId,
             costTracker, fileTracker, bridge,
           );
           await saveSession(sessionId, messages, currentModel, cwd);
@@ -880,9 +542,9 @@ async function main(): Promise<void> {
       await executeHooks({ event: "UserPromptSubmit", prompt: trimmed, sessionId, cwd });
 
       await runPromptInk(
-        userInput, messages, systemPrompt, registry,
+        fullInput, messages, systemPrompt, registry,
         { ...opts, model: currentModel }, cwd,
-        interactionAbort.signal, permissionPrompt, sessionId,
+        interactionAbort.signal, permissionPrompt, userInputPrompt, sessionId,
         costTracker, fileTracker, bridge,
       );
 
@@ -900,21 +562,16 @@ async function main(): Promise<void> {
     }
   };
 
-  // ── Interrupt handler — Ctrl+C during input ──────────────────────
-
   let lastInterrupt = 0;
   const handleInterrupt = () => {
     const now = Date.now();
     if (now - lastInterrupt < 1500) {
-      // Double Ctrl+C — exit immediately
       handleExit();
       return;
     }
     lastInterrupt = now;
-    console.log(chalk.dim("\n(Press Ctrl+C again to exit, or Ctrl+D to quit.)"));
+    getDispatch()({ type: "SHOW_INTERRUPT_HINT", text: "Press Ctrl+C again to exit." });
   };
-
-  // ── Processing interrupt — Ctrl+C during processing ──────────────
 
   const handleProcessingInterrupt = () => {
     if (currentAbort) {
@@ -923,10 +580,12 @@ async function main(): Promise<void> {
     }
   };
 
-  // unmount is set after render() — declared here so handleExit can reference it
-  let unmount: () => void = () => {};
+  const handleFileMention = () => {
+    if (isProcessing) return;
+    getDispatch()({ type: "FILE_SELECT_START", cwd });
+  };
 
-  // ── Exit handler — Ctrl+D ────────────────────────────────────────
+  let unmount: () => void = () => {};
 
   const handleExit = async () => {
     if (messages.length > 0) {
@@ -934,7 +593,6 @@ async function main(): Promise<void> {
       console.log(chalk.dim(`\nSession saved: ${sessionId}`));
     }
     getFileHistory().clear();
-    stopCapture();
     unmount();
     await disconnectMcpServers();
     await executeHooks({ event: "SessionEnd", sessionId, cwd });
@@ -942,7 +600,6 @@ async function main(): Promise<void> {
     process.exit(0);
   };
 
-  // Render the Ink app with input callbacks
   const inkApp = render(
     <App
       ref={appRef}
@@ -951,6 +608,7 @@ async function main(): Promise<void> {
       onProcessingInterrupt={handleProcessingInterrupt}
       onExit={handleExit}
       completer={completer}
+      onFileMention={handleFileMention}
     />,
     {
       exitOnCtrlC: false,

@@ -13,8 +13,8 @@
  * ```
  *
  * Skills are loaded from:
- * - ~/.claude-code-core/skills/ (user-level)
- * - .claude-code-core/skills/ (project-level)
+ * - ~/.openharness/skills/ (user-level)
+ * - .openharness/skills/ (project-level)
  *
  * Invoked via slash commands in the REPL: /commit, /review-pr, etc.
  */
@@ -173,8 +173,8 @@ export async function loadSkills(cwd: string): Promise<void> {
 
   // Native skill directories
   const dirs = [
-    join(homedir(), ".claude-code-core", "skills"),
-    join(cwd, ".claude-code-core", "skills"),
+    join(homedir(), ".openharness", "skills"),
+    join(cwd, ".openharness", "skills"),
   ];
 
   for (const dir of dirs) {

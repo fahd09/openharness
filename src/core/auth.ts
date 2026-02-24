@@ -1,7 +1,7 @@
 /**
  * Authentication — token storage and management.
  *
- * Stores credentials securely in ~/.claude-code-core/auth.json with
+ * Stores credentials securely in ~/.openharness/auth.json with
  * restricted file permissions (0600). Supports token refresh logic.
  */
 
@@ -9,7 +9,7 @@ import { readFile, writeFile, mkdir, chmod } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 
-const AUTH_DIR = join(homedir(), ".claude-code-core");
+const AUTH_DIR = join(homedir(), ".openharness");
 const AUTH_FILE = join(AUTH_DIR, "auth.json");
 
 interface AuthToken {

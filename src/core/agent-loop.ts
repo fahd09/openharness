@@ -13,8 +13,9 @@ import {
   executeToolUseBlocks,
   type ToolContext,
   type PermissionCallback,
+  type UserQuestion,
 } from "../tools/tool-registry.js";
-import { needsCompaction, compactConversation } from "./context.js";
+import { needsCompaction, compactConversation, estimateApiTokens } from "./context.js";
 import {
   getMaxRetries,
   isContextOverflowError,
@@ -67,6 +68,11 @@ export interface AgentLoopParams {
    * "allow_all", the loop nullifies the callback for remaining turns.
    */
   requestPermission?: PermissionCallback;
+  /**
+   * Callback to present interactive questions to the user.
+   * Passed through to ToolContext for the AskUserQuestion tool.
+   */
+  requestUserInput?: (questions: UserQuestion[]) => Promise<Record<string, string>>;
   onTextDelta?: (text: string) => void;
   onThinkingDelta?: (thinking: string) => void;
   /** Called when a tool yields a progress update during execution. */
@@ -94,6 +100,7 @@ export async function* agentLoop(
     agentId,
     sessionId,
     thinkingBudgetTokens,
+    requestUserInput,
     onTextDelta,
     onThinkingDelta,
     onToolProgress,
@@ -126,6 +133,9 @@ export async function* agentLoop(
   const readFiles = new Set<string>();
 
   let apiMessages: Anthropic.MessageParam[] = messagesToApi(messages);
+
+  // Incremental token tracking to avoid O(n) re-estimation every turn
+  let cachedTokenEstimate = estimateApiTokens(apiMessages, systemPrompt);
 
   /** Helper to build a result event with cost included. */
   function makeResult(
@@ -174,14 +184,17 @@ export async function* agentLoop(
     }
 
     // ── Auto-compact check ──────────────────────────────────────
-    if (needsCompaction(apiMessages, systemPrompt, model)) {
+    if (needsCompaction(apiMessages, systemPrompt, model, cachedTokenEstimate)) {
       await executeHooks({ event: "PreCompact", sessionId, agentId, cwd });
       const result = await compactConversation(
         apiMessages,
         systemPrompt,
-        model
+        model,
+        undefined,
+        signal
       );
       apiMessages = result.messages;
+      cachedTokenEstimate = result.postTokens;
 
       yield {
         type: "system",
@@ -272,9 +285,12 @@ export async function* agentLoop(
         const result = await compactConversation(
           apiMessages,
           systemPrompt,
-          model
+          model,
+          undefined,
+          signal
         );
         apiMessages = result.messages;
+        cachedTokenEstimate = result.postTokens;
 
         yield {
           type: "system",
@@ -326,6 +342,9 @@ export async function* agentLoop(
       role: "assistant",
       content: assistantMessage.content as Anthropic.ContentBlockParam[],
     });
+
+    // Update cached token estimate with actual API usage (more accurate than estimation)
+    cachedTokenEstimate = assistantMessage.usage.input_tokens + assistantMessage.usage.output_tokens;
 
     // ── Stop reason handling ────────────────────────────────────
 
@@ -393,9 +412,12 @@ export async function* agentLoop(
       const result = await compactConversation(
         apiMessages,
         systemPrompt,
-        model
+        model,
+        undefined,
+        signal
       );
       apiMessages = result.messages;
+      cachedTokenEstimate = result.postTokens;
 
       yield {
         type: "system",
@@ -519,6 +541,7 @@ export async function* agentLoop(
         return result.additionalContext;
       },
       onProgress: onToolProgress,
+      requestUserInput,
     };
     const toolResults = await executeToolUseBlocks(
       toolUseBlocks,

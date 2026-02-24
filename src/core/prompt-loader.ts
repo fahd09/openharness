@@ -4,8 +4,8 @@
  * Prompts are plain markdown files. The filename (without extension) is the
  * prompt name. Override hierarchy (highest priority first):
  *
- *   1. .claude-code-core/prompts/{name}.md  (project-level)
- *   2. ~/.claude-code-core/prompts/{name}.md (user-level)
+ *   1. .openharness/prompts/{name}.md  (project-level)
+ *   2. ~/.openharness/prompts/{name}.md (user-level)
  *   3. src/prompts/{name}.md                (built-in default)
  *
  * This mirrors the existing skills/agents two-tier override pattern.
@@ -28,11 +28,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const BUILTIN_DIR = join(__dirname, "..", "prompts");
 
 /** User-level override directory */
-const USER_DIR = join(homedir(), ".claude-code-core", "prompts");
+const USER_DIR = join(homedir(), ".openharness", "prompts");
 
 /** Project-level override directory (relative to cwd) */
 function projectDir(): string {
-  return join(process.cwd(), ".claude-code-core", "prompts");
+  return join(process.cwd(), ".openharness", "prompts");
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────

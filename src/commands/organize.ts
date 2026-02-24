@@ -11,14 +11,15 @@ export const renameCommand: SlashCommand = {
   description: "Rename current session",
   category: "session",
   async execute(args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
     const name = args.trim();
     if (!name) {
-      console.log(chalk.dim("Usage: /rename <name>"));
+      output(chalk.dim("Usage: /rename <name>"));
       return true;
     }
 
     await renameSession(ctx.sessionId, name);
-    console.log(chalk.dim(`Session renamed to: ${name}`));
+    output(chalk.dim(`Session renamed to: ${name}`));
     return true;
   },
 };
@@ -28,14 +29,15 @@ export const tagCommand: SlashCommand = {
   description: "Add a tag to current session",
   category: "session",
   async execute(args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
     const tag = args.trim();
     if (!tag) {
-      console.log(chalk.dim("Usage: /tag <tag>"));
+      output(chalk.dim("Usage: /tag <tag>"));
       return true;
     }
 
     await tagSession(ctx.sessionId, tag);
-    console.log(chalk.dim(`Tag added: ${tag}`));
+    output(chalk.dim(`Tag added: ${tag}`));
     return true;
   },
 };

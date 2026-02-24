@@ -17,32 +17,33 @@ export const memoryCommand: SlashCommand = {
   description: "View persistent memory (/memory [topics|compact|<topic>])",
   category: "info",
   completions: ["topics", "compact"],
-  async execute(args: string, _ctx: CommandContext): Promise<boolean> {
+  async execute(args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
     const memDir = getMemoryDir();
 
     if (args === "topics") {
       const files = await listMemoryFiles();
       if (files.length === 0) {
-        console.log(chalk.dim("No memory files found."));
+        output(chalk.dim("No memory files found."));
       } else {
-        console.log(chalk.bold("\n  Memory Files"));
-        console.log(chalk.dim("  " + "─".repeat(40)));
+        output(chalk.bold("\n  Memory Files"));
+        output(chalk.dim("  " + "─".repeat(40)));
         for (const file of files) {
           const icon = file === "MEMORY" ? chalk.green("●") : chalk.dim("○");
-          console.log(`  ${icon} ${chalk.dim(file + ".md")}`);
+          output(`  ${icon} ${chalk.dim(file + ".md")}`);
         }
       }
-      console.log(chalk.dim(`\n  Directory: ${memDir}`));
-      console.log();
+      output(chalk.dim(`\n  Directory: ${memDir}`));
+      output();
       return true;
     }
 
     if (args === "compact") {
       const compacted = await compactMemory();
       if (compacted) {
-        console.log(chalk.green("Memory compacted successfully."));
+        output(chalk.green("Memory compacted successfully."));
       } else {
-        console.log(chalk.dim("Memory is already within limits (< 200 lines)."));
+        output(chalk.dim("Memory is already within limits (< 200 lines)."));
       }
       return true;
     }
@@ -51,20 +52,20 @@ export const memoryCommand: SlashCommand = {
       // Show specific topic file
       const content = await loadTopicMemory(args);
       if (!content) {
-        console.log(chalk.dim(`No memory file found for topic "${args}".`));
-        console.log(chalk.dim("Use /memory topics to list available files."));
+        output(chalk.dim(`No memory file found for topic "${args}".`));
+        output(chalk.dim("Use /memory topics to list available files."));
       } else {
-        console.log(chalk.bold(`\n  ${args}.md`));
-        console.log(chalk.dim("  " + "─".repeat(40)));
+        output(chalk.bold(`\n  ${args}.md`));
+        output(chalk.dim("  " + "─".repeat(40)));
         const lines = content.split("\n");
         for (const line of lines.slice(0, 30)) {
-          console.log(chalk.dim(`  ${line}`));
+          output(chalk.dim(`  ${line}`));
         }
         if (lines.length > 30) {
-          console.log(chalk.dim(`  ... (${lines.length - 30} more lines)`));
+          output(chalk.dim(`  ... (${lines.length - 30} more lines)`));
         }
       }
-      console.log();
+      output();
       return true;
     }
 
@@ -72,25 +73,25 @@ export const memoryCommand: SlashCommand = {
     const memory = await loadMemory();
 
     if (!memory) {
-      console.log(chalk.dim("No memory saved yet."));
-      console.log(chalk.dim(`Memory directory: ${memDir}`));
-      console.log(
+      output(chalk.dim("No memory saved yet."));
+      output(chalk.dim(`Memory directory: ${memDir}`));
+      output(
         chalk.dim("Ask me to remember something and I'll save it to MEMORY.md.")
       );
     } else {
-      console.log(chalk.bold("\n  MEMORY.md"));
-      console.log(chalk.dim("  " + "─".repeat(40)));
+      output(chalk.bold("\n  MEMORY.md"));
+      output(chalk.dim("  " + "─".repeat(40)));
       const lines = memory.split("\n");
       const display = lines.slice(0, 20);
       for (const line of display) {
-        console.log(chalk.dim(`  ${line}`));
+        output(chalk.dim(`  ${line}`));
       }
       if (lines.length > 20) {
-        console.log(chalk.dim(`  ... (${lines.length - 20} more lines)`));
+        output(chalk.dim(`  ... (${lines.length - 20} more lines)`));
       }
-      console.log(chalk.dim(`\n  Path: ${memDir}/MEMORY.md`));
+      output(chalk.dim(`\n  Path: ${memDir}/MEMORY.md`));
     }
-    console.log();
+    output();
     return true;
   },
 };

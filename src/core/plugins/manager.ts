@@ -21,7 +21,7 @@ import type {
   PromptBuildContext,
 } from "./types.js";
 
-const PLUGINS_DIR = join(homedir(), ".claude-code-core", "plugins");
+const PLUGINS_DIR = join(homedir(), ".openharness", "plugins");
 
 // ── Plugin Entry ─────────────────────────────────────────────────────
 
@@ -52,10 +52,10 @@ export class PluginManager {
   /**
    * Register a built-in plugin.
    */
-  registerBuiltin(plugin: Plugin): void {
+  registerBuiltin(plugin: Plugin, enabled = true): void {
     this.entries.set(plugin.descriptor.name, {
       plugin,
-      enabled: true,
+      enabled,
       builtin: true,
       state: "registered",
       tools: [],
@@ -82,7 +82,7 @@ export class PluginManager {
   }
 
   /**
-   * Discover and wrap legacy external plugins from ~/.claude-code-core/plugins/.
+   * Discover and wrap legacy external plugins from ~/.openharness/plugins/.
    */
   async discoverExternal(): Promise<void> {
     await mkdir(PLUGINS_DIR, { recursive: true });
@@ -265,7 +265,10 @@ export class PluginManager {
 
     const visit = (name: string) => {
       if (visited.has(name)) return;
-      if (visiting.has(name)) return; // Circular dep — just skip
+      if (visiting.has(name)) {
+        console.warn(`Plugin circular dependency detected: "${name}" — skipping`);
+        return;
+      }
 
       visiting.add(name);
 

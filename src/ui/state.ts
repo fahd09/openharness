@@ -5,10 +5,13 @@
  */
 
 import type { Usage } from "../core/types.js";
+import type { SessionMetadata } from "../core/session.js";
+import type { UserQuestion } from "../tools/tool-registry.js";
+import type { ListItem } from "./components/list-selector.js";
 
 // ── Types ──────────────────────────────────────────────────────────
 
-export type AppPhase = "input" | "processing" | "permission";
+export type AppPhase = "input" | "processing" | "permission" | "question" | "session-select" | "list-select" | "file-select";
 
 export interface CompletedBlock {
   id: string;
@@ -64,6 +67,11 @@ export interface PermissionPending {
   resolve: (key: string) => void;
 }
 
+export interface QuestionPending {
+  questions: UserQuestion[];
+  resolve: (answers: Record<string, string>) => void;
+}
+
 export interface TurnSummary {
   durationSec: number;
   totalTokens: number;
@@ -97,8 +105,26 @@ export interface AppState {
   compactInfo: CompactInfo | null;
   commandOutput: string[];
 
+  // Transient interrupt hint (auto-dismissed)
+  interruptHint: string | null;
+
   // Permission
   pendingPermission: PermissionPending | null;
+
+  // Question
+  pendingQuestion: QuestionPending | null;
+
+  // Session selector
+  sessionList: SessionMetadata[];
+  sessionSelectResolve: ((id: string | null) => void) | null;
+
+  // List selector
+  listSelectItems: ListItem[];
+  listSelectHeader: string;
+  listSelectResolve: ((id: string | null) => void) | null;
+
+  // File selector (@-mention)
+  fileSelectCwd: string;
 
   // Turn summary (shown after each assistant turn)
   turnSummary: TurnSummary | null;
@@ -126,7 +152,15 @@ export function createInitialState(): AppState {
     retryInfo: null,
     compactInfo: null,
     commandOutput: [],
+    interruptHint: null,
     pendingPermission: null,
+    pendingQuestion: null,
+    sessionList: [],
+    sessionSelectResolve: null,
+    listSelectItems: [],
+    listSelectHeader: "",
+    listSelectResolve: null,
+    fileSelectCwd: "",
     turnSummary: null,
     tasks: [],
     agents: [],
@@ -151,11 +185,24 @@ export type AppAction =
   | { type: "COMMAND_OUTPUT"; text: string }
   | { type: "REQUEST_PERMISSION"; permission: PermissionPending }
   | { type: "PERMISSION_RESOLVED" }
+  | { type: "ASK_USER_QUESTION"; question: QuestionPending }
+  | { type: "QUESTION_RESOLVED" }
   | { type: "SPINNER_START"; label: string }
   | { type: "SPINNER_STOP" }
+  | { type: "SHOW_INTERRUPT_HINT"; text: string }
+  | { type: "HIDE_INTERRUPT_HINT" }
   | { type: "CLEAR_STREAMING" }
   | { type: "FREEZE_BLOCK"; block: CompletedBlock }
   | { type: "PROCESSING_COMPLETE" }
+  // Session selector
+  | { type: "SESSION_SELECT_START"; sessions: SessionMetadata[]; resolve: (id: string | null) => void }
+  | { type: "SESSION_SELECT_END" }
+  // List selector
+  | { type: "LIST_SELECT_START"; items: ListItem[]; header: string; resolve: (id: string | null) => void }
+  | { type: "LIST_SELECT_END" }
+  // File selector
+  | { type: "FILE_SELECT_START"; cwd: string }
+  | { type: "FILE_SELECT_END" }
   // Phase 2
   | { type: "TASK_UPDATE"; task: TaskItem }
   | { type: "AGENT_UPDATE"; agent: AgentInfo }
@@ -333,11 +380,32 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         phase: "processing",
       };
 
+    case "ASK_USER_QUESTION":
+      return {
+        ...state,
+        pendingQuestion: action.question,
+        spinnerVisible: false,
+        phase: "question",
+      };
+
+    case "QUESTION_RESOLVED":
+      return {
+        ...state,
+        pendingQuestion: null,
+        phase: "processing",
+      };
+
     case "SPINNER_START":
       return { ...state, spinnerVisible: true, spinnerLabel: action.label };
 
     case "SPINNER_STOP":
       return { ...state, spinnerVisible: false };
+
+    case "SHOW_INTERRUPT_HINT":
+      return { ...state, interruptHint: action.text };
+
+    case "HIDE_INTERRUPT_HINT":
+      return { ...state, interruptHint: null };
 
     case "CLEAR_STREAMING":
       return {
@@ -373,6 +441,59 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         turnSummary: null,
         commandOutput: [],
         pendingPermission: null,
+        pendingQuestion: null,
+        interruptHint: null,
+      };
+
+    // Session selector
+    case "SESSION_SELECT_START":
+      return {
+        ...state,
+        phase: "session-select",
+        sessionList: action.sessions,
+        sessionSelectResolve: action.resolve,
+      };
+
+    case "SESSION_SELECT_END":
+      return {
+        ...state,
+        phase: "input",
+        sessionList: [],
+        sessionSelectResolve: null,
+      };
+
+    // List selector
+    case "LIST_SELECT_START":
+      return {
+        ...state,
+        phase: "list-select",
+        listSelectItems: action.items,
+        listSelectHeader: action.header,
+        listSelectResolve: action.resolve,
+      };
+
+    case "LIST_SELECT_END":
+      return {
+        ...state,
+        phase: "input",
+        listSelectItems: [],
+        listSelectHeader: "",
+        listSelectResolve: null,
+      };
+
+    // File selector
+    case "FILE_SELECT_START":
+      return {
+        ...state,
+        phase: "file-select",
+        fileSelectCwd: action.cwd,
+      };
+
+    case "FILE_SELECT_END":
+      return {
+        ...state,
+        phase: "input",
+        fileSelectCwd: "",
       };
 
     // Phase 2: Tasks

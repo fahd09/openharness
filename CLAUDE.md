@@ -1,198 +1,43 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
-Claude Code Core is a lightweight, extensible AI-powered coding assistant CLI written in TypeScript. It provides interactive terminal access to multiple LLM providers (Anthropic, OpenAI, OpenAI-compatible) with file operations, shell commands, web search, task delegation, session management, a unified plugin architecture, MCP integration, and 30+ slash commands.
-
-**Stats**: ~97 source files (~94 TypeScript + 3 shell), ~14,500 lines across `src/`.
+OpenHarness — extensible AI coding assistant CLI in TypeScript. Multi-provider (Anthropic, OpenAI, Gemini, OpenAI-compatible), plugin architecture, 30+ slash commands, MCP integration.
 
 ## Commands
 
 ```bash
-npm start                    # Run interactive REPL
-npm run dev                  # Watch mode with hot reload (tsx watch)
+npm start                    # Interactive REPL
+npm run dev                  # Watch mode (tsx watch)
 npm start -- -p "prompt"     # One-shot mode
-npm start -- -m haiku -p "prompt"  # Specify model
-npm start -- -r <id>         # Resume a session
-npm start -- -v              # Verbose output (token details)
+npm start -- -m haiku        # Specify model
+npm start -- -r <id>         # Resume session
 ```
 
-No build step required — uses `tsx` for direct TypeScript execution. No test framework or linter is configured yet.
+No build step — uses `tsx` directly. No test framework configured yet.
 
-## Architecture
+## Architecture (high-level)
 
-### Entry Point
+- **Entry**: `src/index.tsx` — Ink-based terminal UI, plugin init, REPL loop
+- **Agent loop**: `src/core/agent-loop.ts` — message → LLM → tool execution → loop
+- **Providers**: `src/core/providers/` — Anthropic, OpenAI-compat, Gemini. All internals Anthropic-shaped; providers translate at API boundary
+- **Tools**: `src/tools/` — async generators yielding `{ type: "progress"|"result", content }`. Registry does Zod → JSON Schema conversion
+- **Commands**: `src/commands/` — `SlashCommand` interface, registered via plugins
+- **Plugins**: `src/plugins/` — registration layer. `Plugin.init(ctx)` calls `registerTool/Command/Hook/PromptSegment`
+- **Prompt**: `src/prompt/` — multi-segment system prompt with cache hints, built from plugin-registered segments
 
-`src/index.tsx` — CLI entry point with Ink-based terminal UI. Plugin initialization (registers built-in plugins, discovers external), tool registry setup, command registry from plugin-provided commands, system prompt built via plugin prompt segments. Handles REPL loop, session management, permission prompts, welcome banner, token/cost display, file snapshots, and lifecycle hooks.
+## Key Conventions
 
-### Command System (`src/commands/`, `src/core/commands.ts`)
+- ES modules with `.js` extension on all local imports
+- TypeScript strict mode, target ES2022
+- Zod for tool input schemas
+- Tools are async generators (not plain async functions)
+- No external deps for markdown rendering or syntax highlighting
+- Config dir: `~/.openharness/`
 
-26 slash commands managed by `CommandRegistry`. Each command implements `SlashCommand` { name, description, category, aliases?, execute(args, ctx) }. Commands receive `CommandContext` with mutable session state (messages, model, costTracker, fileTracker, systemPrompt, rl, cwd, sessionId, toolRegistry, permissionMode, runPrompt).
+## Adding Extensions
 
-**Commands by category:**
-- **Session**: exit/quit, clear, sessions/history, resume, rename, tag
-- **Model & config**: model, fast, thinking, output-style, config
-- **Info**: help, cost, status, diff, memory, doctor, hooks, agents
-- **Tools & actions**: compact, plan, init, copy, undo, skills, plugin, feedback/bug, login, logout
-
-**Adding a new command:**
-1. Create `src/commands/your-command.ts` implementing `SlashCommand`
-2. Register it via `ctx.registerCommand()` in a plugin (see `src/plugins/commands-plugin.ts`)
-
-### Plugin System (`src/plugins/`, `src/core/plugins/`)
-
-**Layer architecture:** Plugins are the **registration layer** (what gets loaded). `src/commands/`, `src/tools/`, `src/prompt/` are the **implementation layer** (how things work). Plugins import from implementation files and register them through a unified `PluginContext`.
-
-**Plugin interface:** `Plugin` has `descriptor` (name, version, description, dependencies) and `init(ctx)`. The `PluginContext` provides `registerTool()`, `registerCommand()`, `registerHook()`, `registerPromptSegment()`, and `cwd`.
-
-**Built-in plugins** (registered in `index.tsx` startup):
-- `core-prompt` — 8 prompt segments (identity, rules, tools, guidelines, environment, claude-md, output-style)
-- `memory` — `/memory` command + memory prompt segment
-- `commands` — 24 slash commands (all except `/help`, `/memory`, `/skills`)
-- `skills` — Skill loading + `/skills` command + skills-list prompt segment
-
-**Startup flow:**
-1. `PluginManager` created, cwd set
-2. Built-in plugins registered (`registerBuiltin`)
-3. External plugins discovered (`discoverExternal` — wraps legacy `~/.claude-code-core/plugins/`)
-4. Hooks and agents loaded (core, not plugins)
-5. All plugins initialized (`init` — topological sort by deps)
-6. Tool registry: built-in tools + `pluginManager.getTools()` + Task + MCP
-7. Command registry: `pluginManager.getCommands()` + `createHelpCommand()`
-8. System prompt: `buildSystemPrompt(cwd, toolNames, pluginManager)` — collects prompt segments
-
-**Prompt segments** have `position` (static/dynamic/volatile → cache groups) and `priority` (sort order within group, lower=earlier).
-
-**External plugins** in `~/.claude-code-core/plugins/` with `plugin.json` are auto-wrapped into the `Plugin` interface.
-
-See `docs/extensibility.md` for the full guide to all 6 extension mechanisms.
-
-### Agent Loop (`src/core/agent-loop.ts`)
-
-The core loop that drives all interactions:
-1. Sends user message + tool schemas to the LLM provider
-2. Receives streaming response (text, thinking, tool calls)
-3. Executes tool calls via `ToolRegistry` (with concurrency control and permissions)
-4. Injects tool results back into the conversation
-5. Auto-compacts when context limits are reached
-6. Loops until `end_turn` or max turns exhausted
-
-Yields typed `LoopEvent`s (text_delta, thinking_delta, tool_use_start, tool_result, assistant, system/compact_boundary, retry, result) consumed by `index.ts` for display.
-
-Exports `messagesToApi()` for use by the `/compact` command.
-
-### LLM Provider Abstraction (`src/core/providers/`)
-
-All providers implement `LLMProvider` from `base.ts` with two methods: `streamOnce()` (streaming) and `complete()` (non-streaming for compaction). Internal message format is Anthropic-shaped; each provider translates at the API boundary.
-
-- `anthropic.ts` — Claude API with prompt caching, extended thinking, and per-env cache disabling
-- `openai-compat.ts` — Shared implementation for both OpenAI and any OpenAI-compatible endpoint
-- `index.ts` — Factory that selects provider based on `LLM_PROVIDER` env var
-- `base.ts` — `LLMProvider` interface, `ProviderStreamParams` (includes `responseSchema` for structured output), `ProviderStreamYield`
-
-### Tool System (`src/tools/`)
-
-19 tool files. Tools implement the `Tool` interface from `tool-registry.ts`. Each tool is an async generator yielding `ToolOutput` (`progress` for transient display, `result` for final AI-visible output).
-
-**Built-in tools**: Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch, Task, TodoWrite, NotebookEdit, EnterPlanMode, ExitPlanMode, BashOutput, KillShell, ShellRegistry, plus MCP stub tools.
-
-**Key interfaces:**
-- `Tool` — name, description, inputSchema (Zod), call(), isReadOnly(), isConcurrencySafe()
-- `ToolRegistry` — registration, schema conversion (Zod → JSON Schema), concurrency queue, permission checking
-- `ToolContext` — cwd, abortSignal, agentId, parentMessages, permission callback
-
-**Adding a new tool:**
-1. Create `src/tools/your-tool.ts` implementing the `Tool` interface
-2. Export it from `src/tools/all.ts` (the barrel file)
-
-### Markdown & Syntax Highlighting (`src/core/markdown.ts`, `src/core/syntax-highlight.ts`)
-
-- `renderMarkdown(text)` — Full markdown → chalk-formatted text. Handles headers, bold/italic/strikethrough, code blocks with syntax highlighting, tables with box-drawing borders, clickable hyperlinks (OSC 8), blockquotes, lists, horizontal rules.
-- `StreamingRenderer` — Line-buffered streaming renderer used during `onTextDelta`. Accumulates table rows, flushes on block boundaries.
-- `highlightLine(line, lang)` — Keyword-based syntax highlighting for 15+ languages (TS/JS, Python, Rust, Go, Bash, SQL, JSON, YAML, CSS, etc.). Keywords → blue, strings → yellow, comments → dim green, numbers → magenta, types → cyan. Zero external dependencies.
-
-### Permission Modes (`src/core/permission-modes.ts`)
-
-Four modes: `default` (prompt for non-read-only), `acceptEdits` (auto-approve Write/Edit), `bypassPermissions` (approve all), `plan` (block all writes except ExitPlanMode).
-
-### Session Management (`src/core/session.ts`)
-
-Sessions stored as JSON in `~/.claude-code-core/sessions/`. Supports save, load, list, search (by title/tags/cwd/id), rename, tag, delete.
-
-### Memory System (`src/core/memory.ts`)
-
-Project-scoped via MD5 hash of cwd. Stored in `~/.claude-code-core/projects/{hash}/memory/`. Supports MEMORY.md (loaded into system prompt, truncated to 200 lines), topic-specific files (debugging.md, patterns.md, etc.), listing, and compaction.
-
-### Context & Compaction (`src/core/context.ts`)
-
-Estimates tokens, checks compaction thresholds (80% of context window), and compacts via LLM summarization. Supports custom preservation instructions passed from `/compact <instructions>`.
-
-### MCP Client (`src/core/mcp/`)
-
-- `config.ts` — Loads `mcp.json` from `~/.claude-code-core/`, `<cwd>/.claude-code-core/`, `<cwd>/`
-- `transport.ts` — Stdio (child process) and SSE (fetch) transports
-- `client.ts` — JSON-RPC client, tool discovery, converts MCP JSON Schema → Zod → internal Tool interface
-- `index.ts` — `initializeMcpServers()` and `disconnectMcpServers()`
-
-Tools registered as `mcp__serverName__toolName`.
-
-### Plugin Framework (`src/core/plugins/`)
-
-- `types.ts` — `Plugin`, `PluginContext`, `PromptSegmentRegistration`, `PluginDescriptor` + legacy `PluginManifest`/`PluginInstance`
-- `manager.ts` — `PluginManager` with register/init/getTools/getCommands/getPromptSegments/enable/disable
-- `loader.ts` — Legacy external plugin discovery from `~/.claude-code-core/plugins/`
-- `index.ts` — Singleton + barrel export
-
-### Other Core Modules
-
-- `src/core/cost.ts` — Token tracking and cost calculation per model, per-model breakdown
-- `src/core/retry.ts` — Exponential backoff, error classification, context overflow detection
-- `src/core/hooks.ts` — 10 lifecycle events (PreToolUse, PostToolUse, PostToolUseFailure, Notification, UserPromptSubmit, SessionStart, SessionEnd, Stop, SubagentStop, PreCompact). Shell command, LLM prompt, or programmatic handlers. Scoped hooks for per-agent lifecycle. updatedInput/additionalContext support.
-- `src/core/hook-prompt.ts` — LLM-based hook evaluation (prompt hooks via fast model)
-- `src/core/agents.ts` — Custom agent loading from markdown files with YAML frontmatter. Agent registry with memory, hooks, tool restrictions.
-- `src/core/skills.ts` — Custom commands loaded from `.claude-code-core/skills/` markdown files. $ARGUMENTS substitution, !`command` preprocessing, fork context, once tracking.
-- `src/core/file-tracker.ts` — Records Write/Edit operations with lines added/removed
-- `src/core/file-history.ts` — Pre-edit snapshots for `/undo`. Cleaned up on session end.
-- `src/core/image.ts` — Image detection, base64 encoding, media type detection (png, jpg, gif, webp, svg, bmp)
-- `src/core/pdf.ts` — PDF text extraction via `pdftotext` with fallback
-- `src/core/auth.ts` — Token storage in `~/.claude-code-core/auth.json` (0600 perms)
-- `src/core/output-style.ts` — 4 response styles (concise, detailed, markdown, plain)
-- `src/core/suggestions.ts` — Context-aware prompt suggestions based on project type
-- `src/core/bash-analyzer.ts` — Intelligent summarization of large bash outputs
-- `src/core/streaming.ts` — Provider streaming helpers
-
-### System Prompt (`src/prompt/`)
-
-- `system-prompt.ts` — Builds multi-segment system prompt with cache hints. Segment 1 (cached): identity, system, tool instructions, task/coding guidelines. Segment 2 (cached): environment (platform, git, CLI tools), CLAUDE.md, MEMORY.md. Segment 3 (uncached): output style.
-- `agent-prompts.ts` — Subagent-specific prompts (code, research, creative, fork)
-- `claude-md.ts` — CLAUDE.md file loader from project directories
-
-### Shell Completions (`src/completions/`)
-
-bash.sh, zsh.sh, fish.sh — Complete CLI flags (--model, --permission-mode, etc.), model names, permission modes.
-
-### Lib (`src/lib/`)
-
-- `diff.ts` — Unified diff computation and formatting for Edit tool preview
-- `spinner.ts` — Braille spinner with context labels ("Thinking...", "Running Bash...")
-
-## Compatible Models
-
-- **Anthropic Claude API** (default)
-- **OpenAI GPT-4**
-- **OpenAI GPT-3** (including variations like `o1`, `o3`, etc.)
-- **OpenAI-Compatible APIs** (any API that adheres to OpenAI's API specifications)
-
-## Conventions
-
-- ES modules throughout (`"type": "module"` in package.json). All local imports use `.js` extension.
-- TypeScript strict mode. Target ES2022, module ESNext, bundler resolution.
-- Zod for tool input validation; JSON Schema derived from Zod schemas for the LLM API.
-- No compilation step — `tsx` runs TypeScript directly.
-- `ripgrep` (`rg`) is required on the system for the Grep tool.
-- Commands use `SlashCommand` interface with category-based grouping.
-- Tools are async generators yielding `{ type: "progress" | "result", content: string }`.
-- Providers translate at the API boundary — all internals are Anthropic-shaped.
-- Zero external dependencies for syntax highlighting, markdown rendering, and table formatting.
+- **Command**: create file in `src/commands/`, implement `SlashCommand`, register in a plugin via `ctx.registerCommand()`
+- **Tool**: create file in `src/tools/`, implement `Tool` interface, export from `src/tools/all.ts`
+- **Plugin**: implement `Plugin` (descriptor + init), register in `src/index.tsx`
+- **CLI tool plugin**: use `createCliToolPlugin()` factory from `src/plugins/cli-tool.ts`

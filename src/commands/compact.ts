@@ -17,8 +17,9 @@ export const compactCommand: SlashCommand = {
   description: "Manually compact conversation context (/compact [instructions])",
   category: "session",
   async execute(args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
     if (ctx.messages.length < 4) {
-      console.log(chalk.dim("Not enough messages to compact."));
+      output(chalk.dim("Not enough messages to compact."));
       return true;
     }
 
@@ -27,10 +28,10 @@ export const compactCommand: SlashCommand = {
 
     const preserveInstructions = args.trim() || undefined;
     if (preserveInstructions) {
-      console.log(chalk.dim(`Compacting with custom instructions: "${preserveInstructions}"`));
+      output(chalk.dim(`Compacting with custom instructions: "${preserveInstructions}"`));
     }
 
-    console.log(chalk.dim(`Compacting ${ctx.messages.length} messages (${preTokens} est. tokens)...`));
+    output(chalk.dim(`Compacting ${ctx.messages.length} messages (${preTokens} est. tokens)...`));
 
     const result = await compactConversation(
       apiMessages,
@@ -70,7 +71,7 @@ export const compactCommand: SlashCommand = {
       ctx.messages.push(msg);
     }
 
-    console.log(
+    output(
       chalk.magenta(
         `⟳ Compacted: ${result.preTokens} → ${result.postTokens} tokens`
       )

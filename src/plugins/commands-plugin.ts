@@ -8,7 +8,7 @@
  */
 
 import type { Plugin } from "../core/plugins/types.js";
-import { exitCommand, clearCommand, sessionsCommand } from "../commands/session.js";
+import { exitCommand, clearCommand } from "../commands/session.js";
 import { modelCommand } from "../commands/model.js";
 import { costCommand } from "../commands/cost.js";
 import { compactCommand } from "../commands/compact.js";
@@ -42,7 +42,6 @@ export const commandsPlugin: Plugin = {
     // Session commands
     ctx.registerCommand(exitCommand);
     ctx.registerCommand(clearCommand);
-    ctx.registerCommand(sessionsCommand);
     ctx.registerCommand(resumeCommand);
     ctx.registerCommand(renameCommand);
     ctx.registerCommand(tagCommand);

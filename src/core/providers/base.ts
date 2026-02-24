@@ -51,6 +51,7 @@ export interface ProviderCompleteParams {
   model: string;
   maxTokens: number;
   messages: Array<{ role: "user" | "assistant"; content: string }>;
+  signal?: AbortSignal;
 }
 
 export interface ProviderCompleteResult {

@@ -4,7 +4,7 @@
  *
  * In plan mode, the agent can only use read-only tools. Once the
  * plan is complete, it calls ExitPlanMode to:
- * 1. Write the plan to .claude-code-core/plan.md
+ * 1. Write the plan to .openharness/plan.md
  * 2. Signal the REPL to prompt the user for approval
  * 3. If approved, the REPL switches to default permission mode
  */
@@ -39,7 +39,7 @@ export const exitPlanModeTool: Tool = {
     // Write plan to file
     if (input.plan_summary) {
       try {
-        const planDir = join(context.cwd, ".claude-code-core");
+        const planDir = join(context.cwd, ".openharness");
         await mkdir(planDir, { recursive: true });
         const planPath = join(planDir, PLAN_FILENAME);
         await writeFile(planPath, input.plan_summary, "utf-8");

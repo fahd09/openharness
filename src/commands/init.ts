@@ -141,14 +141,15 @@ export const initCommand: SlashCommand = {
   name: "init",
   description: "Initialize CLAUDE.md for current project",
   category: "other",
-  async execute(_args: string, ctx: CommandContext): Promise<boolean> {
+  async execute(args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
     const claudeMdPath = join(ctx.cwd, "CLAUDE.md");
 
     // Check if CLAUDE.md already exists
     try {
       await access(claudeMdPath, constants.R_OK);
-      console.log(chalk.yellow("CLAUDE.md already exists in this directory."));
-      console.log(chalk.dim("  Use your editor to modify it, or delete it first to regenerate."));
+      output(chalk.yellow("CLAUDE.md already exists in this directory."));
+      output(chalk.dim("  Use your editor to modify it, or delete it first to regenerate."));
       return true;
     } catch {
       // File doesn't exist — good, we'll create it
@@ -158,9 +159,9 @@ export const initCommand: SlashCommand = {
     const content = generateClaudeMd(signals);
 
     await writeFile(claudeMdPath, content, "utf-8");
-    console.log(chalk.green("Created CLAUDE.md"));
-    console.log(chalk.dim(`  Detected: ${signals.language ?? "unknown language"}${signals.framework ? ` / ${signals.framework}` : ""}`));
-    console.log(chalk.dim("  Edit the file to add project-specific instructions for Claude."));
+    output(chalk.green("Created CLAUDE.md"));
+    output(chalk.dim(`  Detected: ${signals.language ?? "unknown language"}${signals.framework ? ` / ${signals.framework}` : ""}`));
+    output(chalk.dim("  Edit the file to add project-specific instructions for Claude."));
 
     return true;
   },

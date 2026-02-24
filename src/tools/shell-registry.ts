@@ -2,7 +2,7 @@
  * Shell Registry — manages background shell processes.
  *
  * When Bash is called with run_in_background=true, the shell process
- * is registered here. BashOutput reads from it, KillShell terminates it.
+ * is registered here. TaskOutput reads from it, TaskStop terminates it.
  */
 
 import { spawn, type ChildProcess } from "child_process";

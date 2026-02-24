@@ -89,9 +89,10 @@ export const copyCommand: SlashCommand = {
   category: "tools",
   completions: ["all"],
   async execute(args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
     const assistantText = getLastAssistantText(ctx);
     if (!assistantText) {
-      console.log(chalk.dim("No assistant response to copy from."));
+      output(chalk.dim("No assistant response to copy from."));
       return true;
     }
 
@@ -105,17 +106,17 @@ export const copyCommand: SlashCommand = {
       if (blocks.length === 0) {
         // No code blocks — copy the whole response
         textToCopy = assistantText;
-        console.log(chalk.dim("No code blocks found. Copying full response."));
+        output(chalk.dim("No code blocks found. Copying full response."));
       } else if (args) {
         const idx = parseInt(args, 10);
         if (isNaN(idx) || idx < 1 || idx > blocks.length) {
-          console.log(chalk.dim(`Invalid block number. ${blocks.length} block(s) available.`));
+          output(chalk.dim(`Invalid block number. ${blocks.length} block(s) available.`));
           // List blocks
           for (let i = 0; i < blocks.length; i++) {
             const b = blocks[i];
             const lang = b.lang ? ` (${b.lang})` : "";
             const preview = b.code.split("\n")[0].slice(0, 50);
-            console.log(chalk.dim(`  ${i + 1}. ${preview}...${lang}`));
+            output(chalk.dim(`  ${i + 1}. ${preview}...${lang}`));
           }
           return true;
         }
@@ -129,10 +130,10 @@ export const copyCommand: SlashCommand = {
     const success = await copyToClipboard(textToCopy);
     if (success) {
       const lines = textToCopy.split("\n").length;
-      console.log(chalk.green(`Copied ${lines} line(s) to clipboard.`));
+      output(chalk.green(`Copied ${lines} line(s) to clipboard.`));
     } else {
-      console.log(chalk.yellow("Could not copy to clipboard. Clipboard tool not found."));
-      console.log(chalk.dim("  Install pbcopy (macOS), xclip (Linux), or clip (Windows)."));
+      output(chalk.yellow("Could not copy to clipboard. Clipboard tool not found."));
+      output(chalk.dim("  Install pbcopy (macOS), xclip (Linux), or clip (Windows)."));
     }
 
     return true;

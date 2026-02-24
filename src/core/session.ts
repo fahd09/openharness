@@ -1,7 +1,7 @@
 /**
  * Session Persistence — save and restore conversation transcripts.
  *
- * Sessions are stored as JSON files in ~/.claude-code-core/sessions/.
+ * Sessions are stored as JSON files in ~/.openharness/sessions/.
  * Each session includes: messages, model, timestamp, metadata.
  *
  * Also supports read-only import of Claude Code sessions from
@@ -24,7 +24,7 @@ import {
   CLAUDE_PROJECT_DIR,
 } from "./claude-compat.js";
 
-const SESSION_DIR = join(homedir(), ".claude-code-core", "sessions");
+const SESSION_DIR = join(homedir(), ".openharness", "sessions");
 
 export interface SessionMetadata {
   id: string;

@@ -1,8 +1,8 @@
 #!/usr/bin/env zsh
-# Zsh completion for claude-code-core (claude-core)
+# Zsh completion for openharness
 # Add to ~/.zshrc: source /path/to/completions/zsh.sh
 
-_claude_core() {
+_openharness() {
   local -a opts models modes
 
   opts=(
@@ -22,7 +22,7 @@ _claude_core() {
     '--help[Show help]'
   )
 
-  models=(opus sonnet haiku 4o 4o-mini 4-turbo)
+  models=(opus sonnet haiku 4o 4o-mini 4-turbo flash pro)
   modes=(default acceptEdits bypassPermissions plan)
 
   _arguments -s $opts
@@ -37,5 +37,4 @@ _claude_core() {
   esac
 }
 
-compdef _claude_core claude-core
-compdef _claude_core claude-code-core
+compdef _openharness openharness

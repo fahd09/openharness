@@ -2,55 +2,27 @@
  * /model command — view or change the active model.
  *
  * Usage:
- *   /model           — Show current model and available models
+ *   /model           — Interactive model/provider picker
  *   /model <name>    — Switch to a named model (aliases supported)
  */
 
 import chalk from "chalk";
 import type { SlashCommand, CommandContext } from "../core/commands.js";
+import {
+  resolveModelAlias,
+  AVAILABLE_MODELS,
+  hasProviderApiKey,
+  getProviderForModel,
+} from "../core/models.js";
+import { discoverModels, type DiscoveredModel } from "../core/model-discovery.js";
+import { resetProvider } from "../core/providers/index.js";
+import type { ListItem } from "../ui/components/list-selector.js";
 
-/**
- * Resolve a model alias to full model ID.
- * Replicates the logic from index.ts resolveModel().
- */
-function resolveModel(input: string): string {
-  const provider = (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
-
-  const anthropicAliases: Record<string, string> = {
-    opus: "claude-opus-4-20250514",
-    sonnet: "claude-sonnet-4-20250514",
-    haiku: "claude-haiku-4-5-20251001",
-  };
-
-  const openaiAliases: Record<string, string> = {
-    "4o": "gpt-4o",
-    "4o-mini": "gpt-4o-mini",
-    "4-turbo": "gpt-4-turbo",
-  };
-
-  if (
-    provider === "openai" ||
-    provider === "openai-compat" ||
-    provider === "openai_compat"
-  ) {
-    return openaiAliases[input] ?? input;
-  }
-
-  return anthropicAliases[input] ?? input;
-}
-
-/** Available models per provider for the interactive menu. */
-const AVAILABLE_MODELS: Record<string, Array<{ alias: string; id: string; description: string }>> = {
-  anthropic: [
-    { alias: "opus", id: "claude-opus-4-20250514", description: "Most capable, complex tasks" },
-    { alias: "sonnet", id: "claude-sonnet-4-20250514", description: "Balanced speed and capability" },
-    { alias: "haiku", id: "claude-haiku-4-5-20251001", description: "Fastest, lightweight tasks" },
-  ],
-  openai: [
-    { alias: "4o", id: "gpt-4o", description: "Most capable GPT model" },
-    { alias: "4o-mini", id: "gpt-4o-mini", description: "Fast and affordable" },
-    { alias: "4-turbo", id: "gpt-4-turbo", description: "GPT-4 Turbo" },
-  ],
+/** Display name for provider keys. */
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  gemini: "Gemini",
 };
 
 export const modelCommand: SlashCommand = {
@@ -58,53 +30,158 @@ export const modelCommand: SlashCommand = {
   description: "View or change model (e.g., /model sonnet)",
   category: "model",
   aliases: ["m"],
-  completions: ["opus", "sonnet", "haiku", "4o", "4o-mini", "4-turbo"],
+  completions: ["opus", "sonnet", "haiku", "4o", "4o-mini", "4-turbo", "flash", "pro"],
   async execute(args: string, ctx: CommandContext): Promise<boolean> {
+    const output = ctx.output ?? console.log;
+
+    if (!args && ctx.dispatch) {
+      // Interactive model selector via ListSelector
+      const items = await buildModelItems(ctx.model);
+
+      return new Promise<boolean>((resolve) => {
+        ctx.dispatch!({
+          type: "LIST_SELECT_START",
+          items,
+          header: "Select a model",
+          resolve: (selectedId) => {
+            if (!selectedId) {
+              output(chalk.dim("Model selection cancelled."));
+              resolve(true);
+              return;
+            }
+
+            const provider = getProviderForModel(selectedId);
+            if (provider && !hasProviderApiKey(provider)) {
+              output(chalk.yellow(`No API key set for ${PROVIDER_LABELS[provider] ?? provider}. Cannot switch.`));
+              resolve(true);
+              return;
+            }
+
+            // Switch provider if needed
+            if (provider) {
+              const currentProvider = (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
+              const normalizedCurrent = currentProvider === "openai-compat" || currentProvider === "openai_compat"
+                ? "openai" : currentProvider === "google" ? "gemini" : currentProvider;
+
+              if (normalizedCurrent !== provider) {
+                process.env.LLM_PROVIDER = provider;
+                resetProvider();
+                output(chalk.dim(`Provider switched to ${PROVIDER_LABELS[provider] ?? provider}`));
+              }
+            }
+
+            ctx.setModel(selectedId);
+            output(chalk.dim(`Model changed to: ${selectedId}`));
+            resolve(true);
+          },
+        });
+      });
+    }
+
     if (!args) {
-      // Interactive model menu
+      // Fallback: static text menu when no dispatch available
       const provider = (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
       const normalizedProvider = provider === "openai-compat" || provider === "openai_compat"
-        ? "openai"
-        : provider;
+        ? "openai" : provider === "google" ? "gemini" : provider;
       const models = AVAILABLE_MODELS[normalizedProvider] ?? AVAILABLE_MODELS["anthropic"];
 
-      console.log(chalk.bold("\n  Available Models"));
-      console.log(chalk.dim("  " + "─".repeat(40)));
+      output(chalk.bold("\n  Available Models"));
+      output(chalk.dim("  " + "─".repeat(40)));
       for (const model of models) {
         const current = ctx.model === model.id ? chalk.green(" ●") : "  ";
-        console.log(
+        output(
           `${current} ${chalk.bold(model.alias.padEnd(10))} ${chalk.dim(model.description)}`
         );
-        console.log(chalk.dim(`     ${model.id}`));
+        output(chalk.dim(`     ${model.id}`));
       }
-      console.log();
-      console.log(
+      output();
+      output(
         chalk.dim("  Usage: /model <name>  (e.g., /model opus)")
       );
-      console.log(chalk.dim("  Or use a full model ID: /model claude-opus-4-20250514"));
-      console.log();
+      output(chalk.dim("  Or use a full model ID: /model claude-opus-4-20250514"));
+      output();
       return true;
     }
 
-    const newModel = resolveModel(args.trim());
+    // Direct model switch with args
+    const newModel = resolveModelAlias(args.trim());
 
-    // Validate — check if the model is a known alias
     const provider = (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
     const normalizedProvider = provider === "openai-compat" || provider === "openai_compat"
-      ? "openai"
-      : provider;
+      ? "openai" : provider === "google" ? "gemini" : provider;
     const models = AVAILABLE_MODELS[normalizedProvider] ?? AVAILABLE_MODELS["anthropic"];
     const isKnown = models.some((m) => m.id === newModel || m.alias === args.trim());
 
     ctx.setModel(newModel);
 
     if (isKnown) {
-      console.log(chalk.dim(`Model changed to: ${newModel}`));
+      output(chalk.dim(`Model changed to: ${newModel}`));
     } else {
-      // Model not in our known list — warn but allow (could be a custom model)
-      console.log(chalk.dim(`Model changed to: ${newModel}`));
-      console.log(chalk.yellow("  Note: This model is not in the known models list. It may not be available."));
+      output(chalk.dim(`Model changed to: ${newModel}`));
+      output(chalk.yellow("  Note: This model is not in the known models list. It may not be available."));
     }
     return true;
   },
 };
+
+// ── Helper: build list items from discovered models (with fallback) ──
+
+function formatDescription(m: DiscoveredModel): string {
+  const parts: string[] = [];
+  if (m.pricing) {
+    parts.push(`$${m.pricing.input}/$${m.pricing.output} per MTok`);
+  }
+  if (m.contextWindow) {
+    const ctxK = m.contextWindow >= 1_000_000
+      ? `${(m.contextWindow / 1_000_000).toFixed(1)}M`
+      : `${Math.round(m.contextWindow / 1000)}K`;
+    parts.push(`${ctxK} ctx`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : m.displayName;
+}
+
+async function buildModelItems(currentModel: string): Promise<ListItem[]> {
+  const discovered = await discoverModels();
+
+  if (discovered.length > 0) {
+    const items: ListItem[] = [];
+    for (const m of discovered) {
+      const hasKey = hasProviderApiKey(m.provider);
+      const groupLabel = PROVIDER_LABELS[m.provider] ?? m.provider;
+      const isCurrent = currentModel === m.id;
+      const badge = isCurrent ? "current" : !hasKey ? "no API key" : undefined;
+
+      items.push({
+        id: m.id,
+        label: m.displayName,
+        description: formatDescription(m),
+        group: groupLabel,
+        badge,
+        disabled: !hasKey,
+      });
+    }
+    return items;
+  }
+
+  // Fallback to hardcoded AVAILABLE_MODELS
+  const items: ListItem[] = [];
+  for (const [provider, models] of Object.entries(AVAILABLE_MODELS)) {
+    const hasKey = hasProviderApiKey(provider);
+    const groupLabel = PROVIDER_LABELS[provider] ?? provider;
+
+    for (const model of models) {
+      const isCurrent = currentModel === model.id;
+      const badge = isCurrent ? "current" : !hasKey ? "no API key" : undefined;
+
+      items.push({
+        id: model.id,
+        label: model.alias,
+        description: model.description,
+        group: groupLabel,
+        badge,
+        disabled: !hasKey,
+      });
+    }
+  }
+  return items;
+}
