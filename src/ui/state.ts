@@ -11,7 +11,40 @@ import type { ListItem } from "./components/list-selector.js";
 
 // ── Types ──────────────────────────────────────────────────────────
 
-export type AppPhase = "input" | "processing" | "permission" | "question" | "session-select" | "list-select" | "file-select";
+export type AppPhase = "input" | "processing" | "permission" | "question" | "session-select" | "list-select" | "file-select" | "wizard";
+
+// ── Wizard Step Types ───────────────────────────────────────────────
+
+export interface WizardSelectStep {
+  type: "select";
+  header: string;
+  subtitle?: string;
+  items: { id: string; label: string; description?: string }[];
+}
+
+export interface WizardTextStep {
+  type: "text";
+  header: string;
+  subtitle?: string;
+  placeholder?: string;
+  multiline?: boolean;
+}
+
+export interface WizardMultiselectStep {
+  type: "multiselect";
+  header: string;
+  subtitle?: string;
+  items: { id: string; label: string; checked?: boolean }[];
+}
+
+export interface WizardConfirmStep {
+  type: "confirm";
+  header: string;
+  lines: string[];
+  actions: { key: string; label: string }[];
+}
+
+export type WizardStep = WizardSelectStep | WizardTextStep | WizardMultiselectStep | WizardConfirmStep;
 
 export interface CompletedBlock {
   id: string;
@@ -126,6 +159,11 @@ export interface AppState {
   // File selector (@-mention)
   fileSelectCwd: string;
 
+  // Wizard
+  wizardStep: WizardStep | null;
+  wizardTitle: string;
+  wizardResolve: ((result: string | string[] | null) => void) | null;
+
   // Turn summary (shown after each assistant turn)
   turnSummary: TurnSummary | null;
 
@@ -161,6 +199,9 @@ export function createInitialState(): AppState {
     listSelectHeader: "",
     listSelectResolve: null,
     fileSelectCwd: "",
+    wizardStep: null,
+    wizardTitle: "",
+    wizardResolve: null,
     turnSummary: null,
     tasks: [],
     agents: [],
@@ -203,6 +244,9 @@ export type AppAction =
   // File selector
   | { type: "FILE_SELECT_START"; cwd: string }
   | { type: "FILE_SELECT_END" }
+  // Wizard
+  | { type: "WIZARD_STEP"; step: WizardStep; title: string; resolve: (result: string | string[] | null) => void }
+  | { type: "WIZARD_END" }
   // Phase 2
   | { type: "TASK_UPDATE"; task: TaskItem }
   | { type: "AGENT_UPDATE"; agent: AgentInfo }
@@ -539,6 +583,25 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       }
       return { ...state, expandedView: next };
     }
+
+    // Wizard
+    case "WIZARD_STEP":
+      return {
+        ...state,
+        phase: "wizard",
+        wizardStep: action.step,
+        wizardTitle: action.title,
+        wizardResolve: action.resolve,
+      };
+
+    case "WIZARD_END":
+      return {
+        ...state,
+        phase: "input",
+        wizardStep: null,
+        wizardTitle: "",
+        wizardResolve: null,
+      };
 
     default:
       return state;

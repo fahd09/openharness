@@ -3,7 +3,7 @@
  */
 
 export { McpClient } from "./client.js";
-export { loadMcpConfig, type McpServerConfig, type McpConfig } from "./config.js";
+export { loadMcpConfig, saveMcpServer, removeMcpServer, type McpServerConfig, type McpConfig } from "./config.js";
 export {
   StdioTransport,
   SseTransport,

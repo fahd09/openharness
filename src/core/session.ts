@@ -239,6 +239,144 @@ export async function deleteSession(sessionId: string): Promise<boolean> {
   }
 }
 
+// ── Message Sanitizer ───────────────────────────────────────────────
+
+/**
+ * Sanitize messages to ensure all tool_use/tool_result pairs are complete.
+ *
+ * When resuming sessions across providers (e.g., Anthropic → OpenAI),
+ * incomplete tool call chains cause API errors. This function:
+ * - Injects synthetic error tool_results for unmatched tool_use blocks
+ * - Removes orphan tool_result blocks with no preceding tool_use
+ * - Returns a new array (no mutation of the input)
+ */
+export function sanitizeMessages(
+  messages: ConversationMessage[]
+): ConversationMessage[] {
+  const result: ConversationMessage[] = messages.map((msg) => {
+    if (msg.type === "assistant") {
+      return { ...msg, content: [...msg.content] };
+    }
+    return {
+      ...msg,
+      content: Array.isArray(msg.content) ? [...msg.content] : msg.content,
+    } as ConversationMessage;
+  });
+
+  // Track all tool_use IDs we've seen from assistant messages
+  const allToolUseIds = new Set<string>();
+
+  // First pass: collect all tool_use IDs
+  for (const msg of result) {
+    if (msg.type === "assistant") {
+      for (const block of msg.content) {
+        if (block.type === "tool_use") {
+          allToolUseIds.add(block.id);
+        }
+      }
+    }
+  }
+
+  // Second pass: remove orphan tool_result blocks (no matching tool_use)
+  for (let i = 0; i < result.length; i++) {
+    const msg = result[i];
+    if (msg.type === "user" && Array.isArray(msg.content)) {
+      const filtered = (msg.content as any[]).filter(
+        (block) =>
+          block.type !== "tool_result" || allToolUseIds.has(block.tool_use_id)
+      );
+      if (filtered.length !== (msg.content as any[]).length) {
+        if (filtered.length === 0) {
+          // All content was orphan tool_results — replace with placeholder
+          (result[i] as any).content = [
+            {
+              type: "tool_result" as const,
+              tool_use_id: "placeholder",
+              content:
+                "[Orphan tool results removed during session sanitization]",
+              is_error: true,
+            },
+          ];
+        } else {
+          (result[i] as any).content = filtered;
+        }
+      }
+    }
+  }
+
+  // Third pass: find unmatched tool_use IDs and inject synthetic tool_results
+  const coveredToolUseIds = new Set<string>();
+
+  // Collect all tool_result IDs present in user messages
+  for (const msg of result) {
+    if (msg.type === "user" && Array.isArray(msg.content)) {
+      for (const block of msg.content as any[]) {
+        if (block.type === "tool_result" && block.tool_use_id) {
+          coveredToolUseIds.add(block.tool_use_id);
+        }
+      }
+    }
+  }
+
+  // Walk messages and inject missing tool_results
+  const finalResult: ConversationMessage[] = [];
+
+  for (let i = 0; i < result.length; i++) {
+    const msg = result[i];
+    finalResult.push(msg);
+
+    if (msg.type !== "assistant") continue;
+
+    // Collect tool_use IDs from this assistant message
+    const toolUseIds: string[] = [];
+    for (const block of msg.content) {
+      if (block.type === "tool_use") {
+        toolUseIds.push(block.id);
+      }
+    }
+
+    if (toolUseIds.length === 0) continue;
+
+    // Find which ones are missing results
+    const missingIds = toolUseIds.filter((id) => !coveredToolUseIds.has(id));
+    if (missingIds.length === 0) continue;
+
+    // Check if next message is a user message with tool_results we can augment
+    const next = result[i + 1];
+    if (next && next.type === "user" && Array.isArray(next.content)) {
+      // Inject synthetic results into the existing user message
+      for (const id of missingIds) {
+        (next.content as any[]).push({
+          type: "tool_result" as const,
+          tool_use_id: id,
+          content:
+            "[Result unavailable — session was resumed from a different provider]",
+          is_error: true,
+        });
+      }
+    } else {
+      // No user message follows — inject a new one with synthetic results
+      const syntheticResults = missingIds.map((id) => ({
+        type: "tool_result" as const,
+        tool_use_id: id,
+        content:
+          "[Result unavailable — session was resumed from a different provider]",
+        is_error: true,
+      }));
+
+      finalResult.push({
+        type: "user",
+        role: "user",
+        content: syntheticResults as any,
+        uuid: randomUUID(),
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  return finalResult;
+}
+
 // ── Claude Code Session Import ──────────────────────────────────────
 
 /**

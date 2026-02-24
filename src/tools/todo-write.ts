@@ -24,6 +24,13 @@ interface TodoItem {
 const todoList: TodoItem[] = [];
 let nextTodoId = 1;
 
+/**
+ * Get a snapshot of the current todo list (for /todos command).
+ */
+export function getTodoList(): Array<{ id: string; content: string; status: string; priority?: string; createdAt: string }> {
+  return todoList.map((t) => ({ id: t.id, content: t.content, status: t.status, priority: t.priority, createdAt: t.createdAt }));
+}
+
 // ── Tool Schema ──────────────────────────────────────────────────────
 
 const inputSchema = z.object({

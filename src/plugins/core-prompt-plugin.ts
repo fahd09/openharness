@@ -15,7 +15,7 @@ import {
   codingGuidelines,
   environmentSection,
 } from "../prompt/system-prompt.js";
-import { loadClaudeMdFiles } from "../prompt/claude-md.js";
+import { loadContextFiles } from "../prompt/context-file.js";
 import { getStylePrompt } from "../core/output-style.js";
 
 export const corePromptPlugin: Plugin = {
@@ -73,12 +73,12 @@ export const corePromptPlugin: Plugin = {
     });
 
     ctx.registerPromptSegment({
-      id: "claude-md",
+      id: "context-file",
       position: "dynamic",
       priority: 20,
-      content: async ({ cwd }) => {
-        const claudeMd = await loadClaudeMdFiles(cwd);
-        return claudeMd ?? "";
+      content: async ({ cwd, provider }) => {
+        const contextMd = await loadContextFiles(cwd, provider);
+        return contextMd ?? "";
       },
     });
 

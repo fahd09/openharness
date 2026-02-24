@@ -58,6 +58,7 @@ export const modelCommand: SlashCommand = {
             }
 
             // Switch provider if needed
+            let providerChanged = false;
             if (provider) {
               const currentProvider = (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
               const normalizedCurrent = currentProvider === "openai-compat" || currentProvider === "openai_compat"
@@ -66,12 +67,21 @@ export const modelCommand: SlashCommand = {
               if (normalizedCurrent !== provider) {
                 process.env.LLM_PROVIDER = provider;
                 resetProvider();
+                providerChanged = true;
                 output(chalk.dim(`Provider switched to ${PROVIDER_LABELS[provider] ?? provider}`));
               }
             }
 
             ctx.setModel(selectedId);
             output(chalk.dim(`Model changed to: ${selectedId}`));
+
+            // Rebuild system prompt if provider changed (loads new context file)
+            if (providerChanged && ctx.rebuildSystemPrompt) {
+              ctx.rebuildSystemPrompt().then(() => {
+                output(chalk.dim(`Context file updated for ${PROVIDER_LABELS[provider!] ?? provider}`));
+              });
+            }
+
             resolve(true);
           },
         });
@@ -106,6 +116,26 @@ export const modelCommand: SlashCommand = {
     // Direct model switch with args
     const newModel = resolveModelAlias(args.trim());
 
+    // Detect and handle provider switch
+    const newProvider = getProviderForModel(newModel);
+    let providerSwitched = false;
+    if (newProvider) {
+      const currentProv = (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
+      const normalizedCurrent = currentProv === "openai-compat" || currentProv === "openai_compat"
+        ? "openai" : currentProv === "google" ? "gemini" : currentProv;
+
+      if (normalizedCurrent !== newProvider) {
+        if (!hasProviderApiKey(newProvider)) {
+          output(chalk.yellow(`No API key set for ${PROVIDER_LABELS[newProvider] ?? newProvider}. Cannot switch.`));
+          return true;
+        }
+        process.env.LLM_PROVIDER = newProvider;
+        resetProvider();
+        providerSwitched = true;
+        output(chalk.dim(`Provider switched to ${PROVIDER_LABELS[newProvider] ?? newProvider}`));
+      }
+    }
+
     const provider = (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
     const normalizedProvider = provider === "openai-compat" || provider === "openai_compat"
       ? "openai" : provider === "google" ? "gemini" : provider;
@@ -120,6 +150,13 @@ export const modelCommand: SlashCommand = {
       output(chalk.dim(`Model changed to: ${newModel}`));
       output(chalk.yellow("  Note: This model is not in the known models list. It may not be available."));
     }
+
+    // Rebuild system prompt if provider changed (loads new context file)
+    if (providerSwitched && ctx.rebuildSystemPrompt) {
+      await ctx.rebuildSystemPrompt();
+      output(chalk.dim(`Context file updated for ${PROVIDER_LABELS[newProvider!] ?? newProvider}`));
+    }
+
     return true;
   },
 };

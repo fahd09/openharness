@@ -11,6 +11,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { execFile } from "child_process";
 import type { SlashCommand, CommandContext } from "../core/commands.js";
+import { resolveContextFileName } from "../core/settings.js";
 
 const CONFIG_DIR = join(homedir(), ".openharness");
 
@@ -83,6 +84,10 @@ export const configCommand: SlashCommand = {
       output(chalk.dim(`  Thinking budget: ${thinkingBudget} tokens`));
     }
 
+    // Context file
+    const contextFileName = await resolveContextFileName(provider, ctx.cwd);
+    output(chalk.dim(`  Context file:    ${contextFileName}`));
+
     // Config files
     output();
     output(chalk.dim("  Config files:"));
@@ -93,7 +98,7 @@ export const configCommand: SlashCommand = {
       { name: "hooks.json (project)", path: join(ctx.cwd, ".openharness", "hooks.json") },
       { name: "mcp.json (global)", path: join(CONFIG_DIR, "mcp.json") },
       { name: "mcp.json (project)", path: join(ctx.cwd, "mcp.json") },
-      { name: "CLAUDE.md", path: join(ctx.cwd, "CLAUDE.md") },
+      { name: contextFileName, path: join(ctx.cwd, contextFileName) },
     ];
 
     for (const file of configFiles) {

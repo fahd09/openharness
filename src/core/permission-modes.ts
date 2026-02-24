@@ -14,7 +14,7 @@
  */
 
 import type { PermissionRequest, PermissionResult } from "../tools/tool-registry.js";
-import { loadClaudeSettings, getClaudeProjectSettingsPath } from "./claude-compat.js";
+import { loadClaudeSettings, saveClaudeSettings, getClaudeProjectSettingsPath } from "./claude-compat.js";
 
 export type PermissionMode =
   | "default"
@@ -262,4 +262,158 @@ export function describePermissionMode(mode: PermissionMode): string {
     case "plan":
       return "Read-only mode (planning only, no execution)";
   }
+}
+
+// ── Persistent Permission Helpers ─────────────────────────────────
+
+/**
+ * Build a permission pattern string from a tool invocation.
+ *
+ * - Bash → "Bash(npm test:*)" (first word/prefix of command)
+ * - Read/Write/Edit/Glob/Grep → just "ToolName" (file tools safe per-tool)
+ * - WebFetch → "WebFetch(domain:example.com)"
+ * - Others → just "ToolName"
+ */
+export function buildPermissionPattern(
+  toolName: string,
+  input: unknown
+): string {
+  if (toolName === "Bash" && typeof input === "object" && input !== null) {
+    const cmd = (input as Record<string, unknown>).command;
+    if (typeof cmd === "string") {
+      const trimmed = cmd.trimStart();
+      // Extract first word as prefix
+      const firstWord = trimmed.split(/\s+/)[0] ?? trimmed;
+      if (firstWord) {
+        return `Bash(${firstWord}:*)`;
+      }
+    }
+  }
+
+  const perToolSafe = new Set(["Read", "Write", "Edit", "Glob", "Grep"]);
+  if (perToolSafe.has(toolName)) {
+    return toolName;
+  }
+
+  if (toolName === "WebFetch" && typeof input === "object" && input !== null) {
+    const url = (input as Record<string, unknown>).url;
+    if (typeof url === "string") {
+      try {
+        const hostname = new URL(url).hostname;
+        return `WebFetch(domain:${hostname}:*)`;
+      } catch {
+        // fall through
+      }
+    }
+  }
+
+  return toolName;
+}
+
+/**
+ * Persist a permission pattern to .claude/settings.local.json.
+ *
+ * Appends to `permissions.allow` if not already present.
+ */
+export async function saveProjectPermission(
+  cwd: string,
+  pattern: string
+): Promise<void> {
+  const settingsPath = getClaudeProjectSettingsPath(cwd);
+  const settings = (await loadClaudeSettings(settingsPath)) ?? {};
+
+  const permissions = (typeof settings.permissions === "object" && settings.permissions !== null)
+    ? (settings.permissions as Record<string, unknown>)
+    : {};
+
+  const allow = Array.isArray(permissions.allow)
+    ? (permissions.allow as string[])
+    : [];
+
+  if (allow.includes(pattern)) return; // already present
+
+  await saveClaudeSettings(settingsPath, {
+    ...settings,
+    permissions: {
+      ...permissions,
+      allow: [...allow, pattern],
+    },
+  });
+}
+
+/**
+ * Persist a deny permission pattern to .claude/settings.local.json.
+ */
+export async function saveProjectDenyPermission(
+  cwd: string,
+  pattern: string
+): Promise<void> {
+  const settingsPath = getClaudeProjectSettingsPath(cwd);
+  const settings = (await loadClaudeSettings(settingsPath)) ?? {};
+
+  const permissions = (typeof settings.permissions === "object" && settings.permissions !== null)
+    ? (settings.permissions as Record<string, unknown>)
+    : {};
+
+  const deny = Array.isArray(permissions.deny)
+    ? (permissions.deny as string[])
+    : [];
+
+  if (deny.includes(pattern)) return;
+
+  await saveClaudeSettings(settingsPath, {
+    ...settings,
+    permissions: {
+      ...permissions,
+      deny: [...deny, pattern],
+    },
+  });
+}
+
+/**
+ * Remove a permission pattern from the allow or deny list.
+ */
+export async function removeProjectPermission(
+  cwd: string,
+  pattern: string,
+  list: "allow" | "deny"
+): Promise<boolean> {
+  const settingsPath = getClaudeProjectSettingsPath(cwd);
+  const settings = (await loadClaudeSettings(settingsPath)) ?? {};
+
+  const permissions = (typeof settings.permissions === "object" && settings.permissions !== null)
+    ? (settings.permissions as Record<string, unknown>)
+    : {};
+
+  const arr = Array.isArray(permissions[list])
+    ? (permissions[list] as string[])
+    : [];
+
+  const idx = arr.indexOf(pattern);
+  if (idx < 0) return false;
+
+  const updated = [...arr];
+  updated.splice(idx, 1);
+
+  await saveClaudeSettings(settingsPath, {
+    ...settings,
+    permissions: {
+      ...permissions,
+      [list]: updated,
+    },
+  });
+  return true;
+}
+
+/**
+ * Reset all project permissions (clear allow and deny lists).
+ */
+export async function resetProjectPermissions(cwd: string): Promise<void> {
+  const settingsPath = getClaudeProjectSettingsPath(cwd);
+  const settings = (await loadClaudeSettings(settingsPath)) ?? {};
+
+  await saveClaudeSettings(settingsPath, {
+    ...settings,
+    permissions: { allow: [], deny: [] },
+  });
 }

@@ -58,6 +58,8 @@ export interface PromptSegmentRegistration {
 export interface PromptBuildContext {
   cwd: string;
   toolNames: string[];
+  /** Active provider name (e.g. "anthropic", "openai", "gemini"). */
+  provider?: string;
 }
 
 /** Context passed to Plugin.init(). Provides registration methods. */

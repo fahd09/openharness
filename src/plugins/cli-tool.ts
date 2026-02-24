@@ -64,7 +64,7 @@ export function createCliToolPlugin(def: CliToolDef): Plugin {
       ctx.registerPromptSegment({
         id: `cli-${def.command}`,
         position: "dynamic",
-        priority: 15, // after environment (10), before claude-md (20)
+        priority: 15, // after environment (10), before context-file (20)
         content: async () => {
           const installed = await isCommandAvailable(def.command);
           return installed ? formatToolPrompt(def) : "";

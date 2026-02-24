@@ -141,7 +141,12 @@ export class McpClient {
   }
 
   private createToolAdapter(mcpTool: McpToolDefinition): Tool {
-    const prefixedName = `mcp__${this.serverName}__${mcpTool.name}`;
+    // Sanitize names to [a-zA-Z0-9_-] and enforce max 128 chars total
+    // Both Anthropic and OpenAI reject names with spaces, dots, etc.
+    const safeName = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const safeServer = safeName(this.serverName);
+    const safeTool = safeName(mcpTool.name);
+    const prefixedName = `mcp__${safeServer}__${safeTool}`.slice(0, 128);
     const client = this;
 
     // Build a Zod schema from the MCP JSON schema

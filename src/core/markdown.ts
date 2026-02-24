@@ -25,13 +25,10 @@ import { highlightLine } from "./syntax-highlight.js";
  * Falls back to plain text + URL on terminals that don't support it.
  */
 function hyperlink(text: string, url: string): string {
-  // OSC 8 hyperlink: \x1b]8;;URL\x1b\\TEXT\x1b]8;;\x1b\\
-  // Most modern terminals support this (iTerm2, GNOME Terminal, Windows Terminal, etc.)
-  if (process.env.TERM_PROGRAM || process.env.WT_SESSION) {
-    return `\x1b]8;;${url}\x1b\\${chalk.underline.blue(text)}\x1b]8;;\x1b\\`;
-  }
-  // Fallback for terminals that may not support OSC 8
-  return chalk.underline(text) + chalk.dim(` (${url})`);
+  // Ink's <Text> doesn't handle OSC 8 — use plain formatted text.
+  // Explicit reset (\x1b[0m) after each styled segment prevents color bleed
+  // when Ink's text wrapping splits lines mid-ANSI-sequence.
+  return `${chalk.blue(text)}\x1b[0m${chalk.dim(` (${url})`)}\x1b[0m`;
 }
 
 // ── Table rendering ────────────────────────────────────────────────
@@ -46,7 +43,7 @@ function parseTable(lines: string[]): string[][] | null {
   const rows: string[][] = [];
   for (const line of lines) {
     // Skip separator rows (| --- | --- |)
-    if (/^\|[\s\-:]+\|$/.test(line.trim())) continue;
+    if (/^\|[\s\-:|]+\|$/.test(line.trim())) continue;
 
     const cells = line
       .replace(/^\|/, "")
@@ -66,11 +63,21 @@ function parseTable(lines: string[]): string[][] | null {
 function renderTable(rows: string[][]): string[] {
   if (rows.length === 0) return [];
 
-  // Calculate column widths
   const colCount = Math.max(...rows.map((r) => r.length));
-  const colWidths: number[] = new Array(colCount).fill(0);
 
-  for (const row of rows) {
+  // Format all cells first, then calculate widths from visual output
+  const formattedRows = rows.map((row, r) => {
+    const formatted: string[] = [];
+    for (let c = 0; c < colCount; c++) {
+      const cell = row[c] ?? "";
+      formatted.push(r === 0 ? chalk.bold(formatInline(cell)) : formatInline(cell));
+    }
+    return formatted;
+  });
+
+  // Calculate column widths from formatted (visual) content
+  const colWidths: number[] = new Array(colCount).fill(0);
+  for (const row of formattedRows) {
     for (let c = 0; c < row.length; c++) {
       colWidths[c] = Math.max(colWidths[c], stripAnsi(row[c]).length);
     }
@@ -89,14 +96,14 @@ function renderTable(rows: string[][]): string[] {
   const topBorder = "  ┌" + colWidths.map((w) => "─".repeat(w + 2)).join("┬") + "┐";
   output.push(chalk.dim(topBorder));
 
-  for (let r = 0; r < rows.length; r++) {
-    const row = rows[r];
+  for (let r = 0; r < formattedRows.length; r++) {
+    const row = formattedRows[r];
     let line = chalk.dim("  │");
     for (let c = 0; c < colCount; c++) {
       const cell = row[c] ?? "";
-      const formatted = r === 0 ? chalk.bold(cell) : formatInline(cell);
-      const padding = colWidths[c] - stripAnsi(cell).length;
-      line += " " + formatted + " ".repeat(Math.max(padding, 0)) + " " + chalk.dim("│");
+      const visualWidth = stripAnsi(cell).length;
+      const padding = colWidths[c] - visualWidth;
+      line += " " + cell + " ".repeat(Math.max(padding, 0)) + " " + chalk.dim("│");
     }
     output.push(line);
 
@@ -119,7 +126,9 @@ function renderTable(rows: string[][]): string[] {
  */
 function stripAnsi(str: string): string {
   // eslint-disable-next-line no-control-regex
-  return str.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "");
+  return str
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")   // CSI sequences (colors, bold, etc.)
+    .replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, ""); // OSC 8 hyperlinks
 }
 
 // ── Main renderer ─────────────────────────────────────────────────
@@ -251,24 +260,36 @@ export function renderMarkdown(text: string): string {
  * Apply inline markdown formatting to a line of text.
  */
 export function formatInline(text: string): string {
-  // Bold: **text** or __text__
+  // Use placeholders for elements that produce ANSI/OSC codes containing
+  // brackets and special chars — prevents bold/italic regex from breaking them.
+  const placeholders: string[] = [];
+  const ph = (s: string) => {
+    const idx = placeholders.length;
+    placeholders.push(s);
+    return `\x00PH${idx}\x00`;
+  };
+
+  // 1. Inline code — protect from all further processing
+  text = text.replace(/`([^`]+?)`/g, (_, content) => ph(chalk.cyan(content)));
+
+  // 2. Links — convert before bold/italic can capture brackets
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) =>
+    ph(hyperlink(linkText, url))
+  );
+
+  // 3. Bold: **text** or __text__
   text = text.replace(/\*\*(.+?)\*\*/g, (_, content) => chalk.bold(content));
   text = text.replace(/__(.+?)__/g, (_, content) => chalk.bold(content));
 
-  // Italic: *text* or _text_ (but not inside bold markers)
+  // 4. Italic: *text* or _text_ (but not inside bold markers)
   text = text.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, (_, content) => chalk.italic(content));
   text = text.replace(/(?<!_)_([^_]+?)_(?!_)/g, (_, content) => chalk.italic(content));
 
-  // Inline code: `code`
-  text = text.replace(/`([^`]+?)`/g, (_, content) => chalk.cyan(content));
-
-  // Links: [text](url) → clickable hyperlinks
-  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) =>
-    hyperlink(linkText, url)
-  );
-
-  // Strikethrough: ~~text~~
+  // 5. Strikethrough: ~~text~~
   text = text.replace(/~~(.+?)~~/g, (_, content) => chalk.strikethrough(content));
+
+  // Re-insert placeholders
+  text = text.replace(/\x00PH(\d+)\x00/g, (_, idx) => placeholders[parseInt(idx)]);
 
   return text;
 }

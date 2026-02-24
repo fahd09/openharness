@@ -6,7 +6,7 @@
  * All reads are read-only — we never write to .claude/ directories.
  */
 
-import { readFile } from "fs/promises";
+import { readFile, writeFile, mkdir, rename } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 import { createReadStream } from "fs";
@@ -94,4 +94,27 @@ export async function loadClaudeSettings(
   } catch {
     return null;
   }
+}
+
+/**
+ * Save (merge) data into a Claude Code settings JSON file.
+ *
+ * - Reads the existing file (or starts with {})
+ * - Shallow-merges `updates` into it
+ * - Writes atomically via tmp + rename
+ * - Creates parent directories as needed
+ */
+export async function saveClaudeSettings(
+  settingsPath: string,
+  updates: Record<string, unknown>
+): Promise<void> {
+  const existing = (await loadClaudeSettings(settingsPath)) ?? {};
+  const merged = { ...existing, ...updates };
+
+  const dir = join(settingsPath, "..");
+  await mkdir(dir, { recursive: true });
+
+  const tmpPath = settingsPath + ".tmp";
+  await writeFile(tmpPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+  await rename(tmpPath, settingsPath);
 }

@@ -30,6 +30,14 @@ import { hooksCommand } from "../commands/hooks-cmd.js";
 import { feedbackCommand } from "../commands/feedback.js";
 import { copyCommand } from "../commands/copy.js";
 import { agentsCommand } from "../commands/agents-cmd.js";
+import { todosCommand } from "../commands/todos.js";
+import { contextCommand } from "../commands/context.js";
+import { exportCommand } from "../commands/export.js";
+import { forkCommand } from "../commands/fork.js";
+import { tasksCommand } from "../commands/tasks.js";
+import { permissionsCommand } from "../commands/permissions.js";
+import { rewindCommand } from "../commands/rewind.js";
+import { mcpCommand } from "../commands/mcp-cmd.js";
 
 export const commandsPlugin: Plugin = {
   descriptor: {
@@ -71,5 +79,15 @@ export const commandsPlugin: Plugin = {
     ctx.registerCommand(hooksCommand);
     ctx.registerCommand(feedbackCommand);
     ctx.registerCommand(copyCommand);
+
+    // New commands
+    ctx.registerCommand(todosCommand);
+    ctx.registerCommand(contextCommand);
+    ctx.registerCommand(exportCommand);
+    ctx.registerCommand(forkCommand);
+    ctx.registerCommand(tasksCommand);
+    ctx.registerCommand(permissionsCommand);
+    ctx.registerCommand(rewindCommand);
+    ctx.registerCommand(mcpCommand);
   },
 };

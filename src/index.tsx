@@ -73,6 +73,7 @@ import {
 } from "./cli/permissions.js";
 import { getWelcomeInfo, printWelcomeBanner } from "./cli/welcome.js";
 import { runPipeMode } from "./cli/pipe-mode.js";
+import { isProjectTrusted, promptProjectTrust, trustProject } from "./cli/trust.js";
 
 // ── Shared Setup ──────────────────────────────────────────────────
 
@@ -245,7 +246,21 @@ async function main(): Promise<void> {
   const cwd = process.cwd();
   const registry = createToolRegistry(opts.model);
 
-  const permissionMode = resolvePermissionMode(opts.permissionMode);
+  let permissionMode = resolvePermissionMode(opts.permissionMode);
+
+  // ── Trust check (first-run only) ─────────────────────────────────
+  const isTTY = process.stdin.isTTY && !opts.prompt;
+  if (isTTY && permissionMode === "default") {
+    const trusted = await isProjectTrusted(cwd);
+    if (!trusted) {
+      const userTrusts = await promptProjectTrust(cwd);
+      if (userTrusts) {
+        await trustProject(cwd);
+      } else {
+        permissionMode = "plan"; // read-only mode
+      }
+    }
+  }
 
   // ── Plugin initialization ────────────────────────────────────────
   const pluginManager = getPluginManager();
@@ -285,11 +300,23 @@ async function main(): Promise<void> {
   const sessionId = opts.resume ?? newSessionId();
   await executeHooks({ event: "SessionStart", sessionId, cwd });
 
+  const currentProvider = () => (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
+
   const promptResult = opts.systemPrompt
     ? { segments: [{ text: opts.systemPrompt, cacheHint: false }], details: [] }
-    : await buildSystemPrompt(cwd, registry.getAll().map((t) => t.name), pluginManager);
-  const systemPrompt: SystemPrompt = promptResult.segments;
-  const promptSegmentDetails = promptResult.details;
+    : await buildSystemPrompt(cwd, registry.getAll().map((t) => t.name), pluginManager, currentProvider());
+  let systemPrompt: SystemPrompt = promptResult.segments;
+  let promptSegmentDetails = promptResult.details;
+
+  /** Rebuild system prompt (called when provider changes via /model). */
+  const rebuildSystemPrompt = async (): Promise<void> => {
+    if (opts.systemPrompt) return; // user-provided prompt is immutable
+    const result = await buildSystemPrompt(
+      cwd, registry.getAll().map((t) => t.name), pluginManager, currentProvider()
+    );
+    systemPrompt = result.segments;
+    promptSegmentDetails = result.details;
+  };
 
   const costTracker = new CostTracker();
   const fileTracker = new FileChangeTracker();
@@ -326,15 +353,14 @@ async function main(): Promise<void> {
   });
 
   const projectPermissions = await loadProjectPermissions(cwd);
-  const isTTY = process.stdin.isTTY && !opts.prompt;
 
   // For Ink mode, we need a dispatch function that routes to the App.
   let inkDispatch: (action: import("./ui/state.js").AppAction) => void = () => {};
   const getInkDispatch = () => inkDispatch;
 
   const basePermissionPrompt = isTTY
-    ? createInkPermissionPrompt(getInkDispatch)
-    : createPipePermissionPrompt();
+    ? createInkPermissionPrompt(getInkDispatch, cwd)
+    : createPipePermissionPrompt(cwd);
   const permissionPrompt = createPermissionWrapper(permissionMode, basePermissionPrompt, projectPermissions);
 
   const userInputPrompt = isTTY
@@ -409,10 +435,12 @@ async function main(): Promise<void> {
       prompt, messages, systemPrompt, registry,
       { ...opts, model: currentModel }, cwd,
       new AbortController().signal,
-      permissionPrompt, userInputPrompt, sessionId, costTracker, fileTracker,
+      permissionPrompt, userInputPrompt, currentSessionId, costTracker, fileTracker,
       bridge,
     );
   };
+
+  let currentSessionId = sessionId;
 
   const buildCommandContext = (): CommandContext => ({
     messages,
@@ -423,7 +451,8 @@ async function main(): Promise<void> {
     systemPrompt,
     promptSegmentDetails,
     cwd,
-    sessionId,
+    sessionId: currentSessionId,
+    setSessionId: (id: string) => { currentSessionId = id; },
     toolRegistry: registry,
     permissionMode,
     requestPermission: permissionPrompt,
@@ -435,6 +464,7 @@ async function main(): Promise<void> {
       });
     },
     dispatch: (action) => getDispatch()(action),
+    rebuildSystemPrompt,
   });
 
   // ── Input handler ──────────────────────────────────────────────
@@ -471,7 +501,7 @@ async function main(): Promise<void> {
       type: "FREEZE_BLOCK",
       block: {
         id: `user-${Date.now()}`,
-        text: `\n${chalk.bgWhite.black(` ${icons.pointer} ${trimmed} `)}`,
+        text: `\n${trimmed.split("\n").map((line, i) => chalk.bgWhite.black(i === 0 ? ` ${icons.pointer} ${line} ` : `   ${line} `)).join("\n")}`,
         type: "user",
       },
     });
@@ -512,10 +542,10 @@ async function main(): Promise<void> {
           await runPromptInk(
             skillPrompt, messages, systemPrompt, registry,
             { ...opts, model: currentModel }, cwd,
-            interactionAbort.signal, permissionPrompt, userInputPrompt, sessionId,
+            interactionAbort.signal, permissionPrompt, userInputPrompt, currentSessionId,
             costTracker, fileTracker, bridge,
           );
-          await saveSession(sessionId, messages, currentModel, cwd);
+          await saveSession(currentSessionId, messages, currentModel, cwd);
           markSkillInvoked(skill.command);
         } catch (err) {
           if (!interactionAbort.signal.aborted) {
@@ -539,16 +569,16 @@ async function main(): Promise<void> {
     currentAbort = interactionAbort;
 
     try {
-      await executeHooks({ event: "UserPromptSubmit", prompt: trimmed, sessionId, cwd });
+      await executeHooks({ event: "UserPromptSubmit", prompt: trimmed, sessionId: currentSessionId, cwd });
 
       await runPromptInk(
         fullInput, messages, systemPrompt, registry,
         { ...opts, model: currentModel }, cwd,
-        interactionAbort.signal, permissionPrompt, userInputPrompt, sessionId,
+        interactionAbort.signal, permissionPrompt, userInputPrompt, currentSessionId,
         costTracker, fileTracker, bridge,
       );
 
-      await saveSession(sessionId, messages, currentModel, cwd);
+      await saveSession(currentSessionId, messages, currentModel, cwd);
     } catch (err) {
       if (interactionAbort.signal.aborted) {
         console.log(chalk.dim("\n(Generation interrupted)"));
@@ -589,13 +619,13 @@ async function main(): Promise<void> {
 
   const handleExit = async () => {
     if (messages.length > 0) {
-      await saveSession(sessionId, messages, currentModel, cwd);
-      console.log(chalk.dim(`\nSession saved: ${sessionId}`));
+      await saveSession(currentSessionId, messages, currentModel, cwd);
+      console.log(chalk.dim(`\nSession saved: ${currentSessionId}`));
     }
     getFileHistory().clear();
     unmount();
     await disconnectMcpServers();
-    await executeHooks({ event: "SessionEnd", sessionId, cwd });
+    await executeHooks({ event: "SessionEnd", sessionId: currentSessionId, cwd });
     console.log(chalk.dim("Goodbye!"));
     process.exit(0);
   };

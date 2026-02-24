@@ -255,8 +255,9 @@ export function createTaskTool(
           : config.defaultModel
             ? MODEL_MAP[config.defaultModel] ?? parentModel
             : parentModel;
+        const activeProvider = (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
         systemPrompt = await buildAgentSystemPrompt(
-          input.subagent_type, context.cwd, childToolNames, config.forkContext
+          input.subagent_type, context.cwd, childToolNames, config.forkContext, activeProvider
         );
       } else {
         // Custom agent from markdown definition
@@ -292,8 +293,9 @@ export function createTaskTool(
           : agent.model
             ? MODEL_MAP[agent.model] ?? agent.model
             : parentModel;
+        const activeProviderCustom = (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
         systemPrompt = await buildCustomAgentSystemPrompt(
-          agent, context.cwd, childToolNames
+          agent, context.cwd, childToolNames, activeProviderCustom
         );
       }
 

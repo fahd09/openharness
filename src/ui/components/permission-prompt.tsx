@@ -28,9 +28,17 @@ export function PermissionPrompt({ permission, dispatch }: PermissionPromptProps
   }, { isActive: true });
 
   return (
-    <Box>
+    <Box flexDirection="column">
       <Text>
-        {chalk.dim(`  Allow ${permission.toolName}? `)}
+        {chalk.dim(`  Allow ${permission.toolName}?`)}
+      </Text>
+      {permission.params && (
+        <Text>
+          {chalk.dim("    ") + chalk.cyan(permission.params)}
+        </Text>
+      )}
+      <Text>
+        {chalk.dim("  ")}
         {chalk.bold("[y]es / [n]o / allow [t]ool / [a]llow all: ")}
       </Text>
     </Box>

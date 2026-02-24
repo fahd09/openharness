@@ -51,8 +51,12 @@ export interface CommandContext {
    * Falls back to console.log if not provided.
    */
   output?: (text: string) => void;
+  /** Switch the active session ID (used by /fork, /rewind). */
+  setSessionId?: (id: string) => void;
   /** Dispatch UI actions (Ink mode only). */
   dispatch?: (action: AppAction) => void;
+  /** Rebuild the system prompt (e.g. after provider switch). */
+  rebuildSystemPrompt?: () => Promise<void>;
 }
 
 export interface SlashCommand {

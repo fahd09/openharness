@@ -1,5 +1,5 @@
 import { platform, arch } from "os";
-import { loadClaudeMdFiles } from "./claude-md.js";
+import { loadContextFiles } from "./context-file.js";
 import { getAgentPrompt } from "./agent-prompts.js";
 import { loadMemory, loadAgentMemory } from "../core/memory.js";
 import { getStylePrompt } from "../core/output-style.js";
@@ -25,13 +25,14 @@ import type { PromptSegmentPosition } from "../core/plugins/types.js";
 export async function buildSystemPrompt(
   cwd: string,
   toolNames: string[],
-  pluginManager?: PluginManager
+  pluginManager?: PluginManager,
+  provider?: string
 ): Promise<SystemPromptResult> {
   // ── Plugin-driven path ─────────────────────────────────────
   // When a pluginManager is provided, collect prompt segments from
   // all enabled plugins, group by position, and assemble.
   if (pluginManager) {
-    return buildSystemPromptFromPlugins(cwd, toolNames, pluginManager);
+    return buildSystemPromptFromPlugins(cwd, toolNames, pluginManager, provider);
   }
 
   // ── Legacy path (subagent prompts, no pluginManager) ───────
@@ -60,9 +61,9 @@ export async function buildSystemPrompt(
 
   dynamicParts.push(await environmentSection(cwd));
 
-  const claudeMd = await loadClaudeMdFiles(cwd);
-  if (claudeMd) {
-    dynamicParts.push(claudeMd);
+  const contextMd = await loadContextFiles(cwd, provider);
+  if (contextMd) {
+    dynamicParts.push(contextMd);
   }
 
   // Load persistent memory
@@ -108,10 +109,11 @@ export async function buildSystemPrompt(
 async function buildSystemPromptFromPlugins(
   cwd: string,
   toolNames: string[],
-  pluginManager: PluginManager
+  pluginManager: PluginManager,
+  provider?: string
 ): Promise<SystemPromptResult> {
   const registrations = pluginManager.getPromptSegments();
-  const buildCtx = { cwd, toolNames };
+  const buildCtx = { cwd, toolNames, provider };
 
   // Group by position, track per-segment details
   const groups: Record<PromptSegmentPosition, string[]> = {
@@ -296,7 +298,8 @@ export async function buildAgentSystemPrompt(
   agentType: string,
   cwd: string,
   toolNames: string[],
-  forkContext: boolean
+  forkContext: boolean,
+  provider?: string
 ): Promise<SystemPrompt> {
   const segments: SystemPromptSegment[] = [];
 
@@ -319,9 +322,9 @@ export async function buildAgentSystemPrompt(
   dynamicParts.push(await environmentSection(cwd));
 
   if (forkContext) {
-    const claudeMd = await loadClaudeMdFiles(cwd);
-    if (claudeMd) {
-      dynamicParts.push(claudeMd);
+    const contextMd = await loadContextFiles(cwd, provider);
+    if (contextMd) {
+      dynamicParts.push(contextMd);
     }
   }
 
@@ -344,7 +347,8 @@ export async function buildAgentSystemPrompt(
 export async function buildCustomAgentSystemPrompt(
   agent: AgentDefinition,
   cwd: string,
-  toolNames: string[]
+  toolNames: string[],
+  provider?: string
 ): Promise<SystemPrompt> {
   const segments: SystemPromptSegment[] = [];
 
@@ -363,9 +367,9 @@ export async function buildCustomAgentSystemPrompt(
   dynamicParts.push(await environmentSection(cwd));
 
   if (agent.forkContext !== false) {
-    const claudeMd = await loadClaudeMdFiles(cwd);
-    if (claudeMd) {
-      dynamicParts.push(claudeMd);
+    const contextMd = await loadContextFiles(cwd, provider);
+    if (contextMd) {
+      dynamicParts.push(contextMd);
     }
   }
 

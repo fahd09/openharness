@@ -6,7 +6,7 @@
  * hex UUIDs ("a3f4b2c"), so there is no collision.
  */
 
-import { getShell, killShell, type ShellEntry } from "./shell-registry.js";
+import { getShell, killShell, listShells, type ShellEntry } from "./shell-registry.js";
 
 // ── Background Agent Tracking ───────────────────────────────────────
 
@@ -64,6 +64,20 @@ export function getBackgroundTask(taskId: string): BackgroundTask | undefined {
   if (agent) return { kind: "agent", entry: agent };
 
   return undefined;
+}
+
+/**
+ * List all background tasks (shells + agents).
+ */
+export function listAllBackgroundTasks(): BackgroundTask[] {
+  const tasks: BackgroundTask[] = [];
+  for (const shell of listShells()) {
+    tasks.push({ kind: "shell", entry: shell });
+  }
+  for (const agent of agents.values()) {
+    tasks.push({ kind: "agent", entry: agent });
+  }
+  return tasks;
 }
 
 export function stopBackgroundTask(taskId: string): boolean {

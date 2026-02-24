@@ -26,6 +26,7 @@ import { QuestionPrompt } from "./question-prompt.js";
 import { SessionSelector } from "./session-selector.js";
 import { ListSelector } from "./list-selector.js";
 import { FileSelector } from "./file-selector.js";
+import { WizardDialog } from "./wizard-dialog.js";
 
 // ── App Handle (exposed to index.tsx) ──────────────────────────────
 
@@ -72,6 +73,7 @@ export const App = forwardRef<AppHandle, AppProps>(function App(
   const isSessionSelect = state.phase === "session-select";
   const isListSelect = state.phase === "list-select";
   const isFileSelect = state.phase === "file-select";
+  const isWizard = state.phase === "wizard";
 
   // Keyboard handling during processing (not during permission prompts)
   useInput((_input, key) => {
@@ -216,8 +218,20 @@ export const App = forwardRef<AppHandle, AppProps>(function App(
         />
       )}
 
+      {/* Region C4: wizard dialog */}
+      {isWizard && state.wizardStep && (
+        <WizardDialog
+          step={state.wizardStep}
+          title={state.wizardTitle}
+          onComplete={(result) => {
+            state.wizardResolve?.(result);
+            dispatch({ type: "WIZARD_END" });
+          }}
+        />
+      )}
+
       {/* Region D: always-visible input (kept mounted during file-select for state) */}
-      {onSubmit && !isSessionSelect && !isListSelect && (
+      {onSubmit && !isSessionSelect && !isListSelect && !isWizard && (
         <TextInput
           ref={textInputRef}
           onSubmit={onSubmit}

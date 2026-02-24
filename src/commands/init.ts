@@ -1,14 +1,19 @@
 /**
- * /init command — Initialize CLAUDE.md for the current project.
+ * /init command — Initialize provider-aware context files for the current project.
  *
  * Scans the project directory for common files (package.json, tsconfig.json,
- * Cargo.toml, etc.) and generates a starter CLAUDE.md with project context.
+ * Cargo.toml, etc.) and generates a starter context file with project context.
+ *
+ * Usage:
+ *   /init       — Generate context file for the active provider
+ *   /init all   — Generate context files for all configured providers
  */
 
 import chalk from "chalk";
 import { readFile, writeFile, access, constants } from "fs/promises";
 import { join, basename } from "path";
 import type { SlashCommand, CommandContext } from "../core/commands.js";
+import { getContextFileMap, resolveContextFileName } from "../core/settings.js";
 
 interface ProjectSignals {
   name: string;
@@ -20,6 +25,20 @@ interface ProjectSignals {
   hasTests: boolean;
   hasLinter: boolean;
 }
+
+/** Human-readable labels for providers. */
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: "Claude",
+  openai: "OpenAI-compatible agents",
+  gemini: "Gemini",
+};
+
+/** Provider-specific description lines for the generated file header. */
+const PROVIDER_DESCRIPTIONS: Record<string, string> = {
+  anthropic: "This file provides guidance to Claude Code when working with code in this repository.",
+  openai: "This file provides guidance to OpenAI-compatible coding agents when working with code in this repository.",
+  gemini: "This file provides guidance to Gemini-based coding agents when working with code in this repository.",
+};
 
 async function detectProject(cwd: string): Promise<ProjectSignals> {
   const signals: ProjectSignals = {
@@ -95,12 +114,14 @@ async function detectProject(cwd: string): Promise<ProjectSignals> {
   return signals;
 }
 
-function generateClaudeMd(signals: ProjectSignals): string {
+function generateContextFile(fileName: string, provider: string, signals: ProjectSignals): string {
   const sections: string[] = [];
 
-  sections.push(`# CLAUDE.md`);
+  // Use the filename (without .md) as the header
+  const headerName = fileName.replace(/\.md$/i, "");
+  sections.push(`# ${headerName}`);
   sections.push("");
-  sections.push(`This file provides guidance to Claude Code when working with code in this repository.`);
+  sections.push(PROVIDER_DESCRIPTIONS[provider] ?? `This file provides guidance to coding agents when working with code in this repository.`);
   sections.push("");
 
   // Project overview
@@ -137,32 +158,106 @@ function generateClaudeMd(signals: ProjectSignals): string {
   return sections.join("\n");
 }
 
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Generate a context file for a single provider.
+ * Returns true if the file was created, false if it already existed.
+ */
+async function generateForProvider(
+  provider: string,
+  fileName: string,
+  cwd: string,
+  signals: ProjectSignals,
+  output: (text: string) => void
+): Promise<boolean> {
+  const filePath = join(cwd, fileName);
+
+  if (await fileExists(filePath)) {
+    output(chalk.yellow(`  ${fileName} already exists — skipped`));
+    return false;
+  }
+
+  const content = generateContextFile(fileName, provider, signals);
+  await writeFile(filePath, content, "utf-8");
+
+  const label = PROVIDER_LABELS[provider] ?? provider;
+  output(chalk.green(`  Created ${fileName}`) + chalk.dim(` (${label})`));
+  return true;
+}
+
 export const initCommand: SlashCommand = {
   name: "init",
-  description: "Initialize CLAUDE.md for current project",
+  description: "Initialize context file(s) for current project",
   category: "other",
+  completions: ["all"],
   async execute(args: string, ctx: CommandContext): Promise<boolean> {
     const output = ctx.output ?? console.log;
-    const claudeMdPath = join(ctx.cwd, "CLAUDE.md");
+    const signals = await detectProject(ctx.cwd);
+    const generateAll = args.trim().toLowerCase() === "all";
 
-    // Check if CLAUDE.md already exists
-    try {
-      await access(claudeMdPath, constants.R_OK);
-      output(chalk.yellow("CLAUDE.md already exists in this directory."));
-      output(chalk.dim("  Use your editor to modify it, or delete it first to regenerate."));
-      return true;
-    } catch {
-      // File doesn't exist — good, we'll create it
+    if (generateAll) {
+      // Generate context files for all configured providers
+      const contextFileMap = await getContextFileMap(ctx.cwd);
+
+      // Deduplicate by filename (multiple providers may map to the same file)
+      const seen = new Set<string>();
+      const entries: Array<{ provider: string; fileName: string }> = [];
+      for (const [provider, fileName] of Object.entries(contextFileMap)) {
+        if (!seen.has(fileName)) {
+          seen.add(fileName);
+          entries.push({ provider, fileName });
+        }
+      }
+
+      output(chalk.bold("\n  Initializing context files for all providers"));
+      output(chalk.dim("  " + "─".repeat(40)));
+
+      let created = 0;
+      for (const { provider, fileName } of entries) {
+        if (await generateForProvider(provider, fileName, ctx.cwd, signals, output)) {
+          created++;
+        }
+      }
+
+      output("");
+      if (created === 0) {
+        output(chalk.dim("  All context files already exist. Delete them first to regenerate."));
+      } else {
+        output(chalk.dim(`  Detected: ${signals.language ?? "unknown language"}${signals.framework ? ` / ${signals.framework}` : ""}`));
+        output(chalk.dim("  Edit these files to add project-specific instructions for each provider."));
+      }
+    } else {
+      // Generate for current provider only
+      const provider = (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
+      const fileName = await resolveContextFileName(provider, ctx.cwd);
+      const filePath = join(ctx.cwd, fileName);
+
+      if (await fileExists(filePath)) {
+        output(chalk.yellow(`${fileName} already exists in this directory.`));
+        output(chalk.dim("  Use your editor to modify it, or delete it first to regenerate."));
+        output(chalk.dim("  Tip: Use /init all to generate context files for all providers."));
+        return true;
+      }
+
+      const content = generateContextFile(fileName, provider, signals);
+      await writeFile(filePath, content, "utf-8");
+
+      const label = PROVIDER_LABELS[provider] ?? provider;
+      output(chalk.green(`Created ${fileName}`) + chalk.dim(` (${label})`));
+      output(chalk.dim(`  Detected: ${signals.language ?? "unknown language"}${signals.framework ? ` / ${signals.framework}` : ""}`));
+      output(chalk.dim("  Edit the file to add project-specific instructions."));
+      output(chalk.dim("  Tip: Use /init all to generate context files for all providers."));
     }
 
-    const signals = await detectProject(ctx.cwd);
-    const content = generateClaudeMd(signals);
-
-    await writeFile(claudeMdPath, content, "utf-8");
-    output(chalk.green("Created CLAUDE.md"));
-    output(chalk.dim(`  Detected: ${signals.language ?? "unknown language"}${signals.framework ? ` / ${signals.framework}` : ""}`));
-    output(chalk.dim("  Edit the file to add project-specific instructions for Claude."));
-
+    output("");
     return true;
   },
 };

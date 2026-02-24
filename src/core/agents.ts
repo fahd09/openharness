@@ -19,7 +19,7 @@
  * - <cwd>/.openharness/agents/ (project-level, overrides user)
  */
 
-import { readFile, readdir } from "fs/promises";
+import { readFile, readdir, mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 import type { HookHandler } from "./hooks.js";
@@ -195,4 +195,51 @@ export function getAgent(name: string): AgentDefinition | undefined {
  */
 export function listAgents(): AgentDefinition[] {
   return Array.from(agents.values());
+}
+
+/**
+ * Write a new agent definition file (.md with YAML frontmatter).
+ * Creates the directory if it doesn't exist.
+ * Returns the full path of the written file.
+ */
+export async function writeAgentFile(
+  dir: string,
+  agent: {
+    name: string;
+    description: string;
+    systemPrompt: string;
+    tools?: string[];
+    model?: string;
+    memory?: string;
+  },
+): Promise<string> {
+  await mkdir(dir, { recursive: true });
+
+  const lines: string[] = ["---"];
+  lines.push(`name: ${agent.name}`);
+  lines.push(`description: ${agent.description}`);
+  if (agent.tools && agent.tools.length > 0) {
+    lines.push(`tools: ${JSON.stringify(agent.tools)}`);
+  }
+  if (agent.model) {
+    lines.push(`model: ${agent.model}`);
+  }
+  if (agent.memory) {
+    lines.push(`memory: ${agent.memory}`);
+  }
+  lines.push("---");
+  lines.push("");
+  lines.push(agent.systemPrompt);
+  lines.push("");
+
+  const filePath = join(dir, `${agent.name}.md`);
+  await writeFile(filePath, lines.join("\n"), "utf-8");
+
+  // Register in the in-memory map so it shows immediately
+  const parsed = parseAgentFile(lines.join("\n"), filePath);
+  if (parsed) {
+    agents.set(parsed.name, parsed);
+  }
+
+  return filePath;
 }

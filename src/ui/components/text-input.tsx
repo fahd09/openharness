@@ -70,6 +70,8 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
   const [multiLineBuffer, setMultiLineBuffer] = useState("");
   const [isMultiLine, setIsMultiLine] = useState(false);
   const [mentions, setMentions] = useState<string[]>([]);
+  const [completionItems, setCompletionItems] = useState<string[]>([]);
+  const [completionCursor, setCompletionCursor] = useState(0);
 
   // Expose insertMention to parent via ref
   useImperativeHandle(ref, () => ({
@@ -118,6 +120,17 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
     onSubmit(fullInput, activeMentions);
   }, [multiLineBuffer, mentions, onSubmit]);
 
+  const updateCompletions = useCallback((newValue: string) => {
+    if (!completer || !newValue.startsWith("/") || newValue.includes(" ")) {
+      setCompletionItems([]);
+      setCompletionCursor(0);
+      return;
+    }
+    const [hits] = completer(newValue);
+    setCompletionItems(hits);
+    setCompletionCursor(0);
+  }, [completer]);
+
   useInput(
     (input, key) => {
       // Ctrl+C — interrupt
@@ -139,8 +152,13 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
         return;
       }
 
-      // Escape — clear line and mentions
+      // Escape — close dropdown if open, otherwise clear line and mentions
       if (key.escape) {
+        if (completionItems.length > 0) {
+          setCompletionItems([]);
+          setCompletionCursor(0);
+          return;
+        }
         setValue("");
         setCursor(0);
         setMultiLineBuffer("");
@@ -149,20 +167,37 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
         return;
       }
 
-      // Enter — submit
+      // Enter — accept completion if dropdown open, otherwise submit
       if (key.return) {
+        if (completionItems.length > 0 && completionCursor >= 0) {
+          const selected = completionItems[completionCursor];
+          setValue(selected + " ");
+          setCursor(selected.length + 1);
+          setCompletionItems([]);
+          setCompletionCursor(0);
+          return;
+        }
         submit(value);
         return;
       }
 
-      // Tab — completion
-      if (key.tab && completer) {
-        const [completions] = completer(value);
-        if (completions.length === 1) {
-          setValue(completions[0] + " ");
-          setCursor(completions[0].length + 1);
+      // Tab — accept completion if dropdown open, otherwise single-match completion
+      if (key.tab) {
+        if (completionItems.length > 0 && completionCursor >= 0) {
+          const selected = completionItems[completionCursor];
+          setValue(selected + " ");
+          setCursor(selected.length + 1);
+          setCompletionItems([]);
+          setCompletionCursor(0);
+          return;
         }
-        // Multiple completions: could show menu (future enhancement)
+        if (completer) {
+          const [completions] = completer(value);
+          if (completions.length === 1) {
+            setValue(completions[0] + " ");
+            setCursor(completions[0].length + 1);
+          }
+        }
         return;
       }
 
@@ -170,8 +205,10 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
       // and only maps \x08 (Ctrl+H) to key.backspace. Treat both as backspace.
       if (key.backspace || key.delete) {
         if (cursor > 0) {
-          setValue((v) => v.slice(0, cursor - 1) + v.slice(cursor));
+          const newValue = value.slice(0, cursor - 1) + value.slice(cursor);
+          setValue(newValue);
           setCursor((c) => c - 1);
+          updateCompletions(newValue);
         }
         return;
       }
@@ -188,8 +225,14 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
         return;
       }
 
-      // Up arrow — history
+      // Up arrow — navigate dropdown or history
       if (key.upArrow) {
+        if (completionItems.length > 0) {
+          setCompletionCursor((prev) =>
+            prev <= 0 ? completionItems.length - 1 : prev - 1
+          );
+          return;
+        }
         if (history.length > 0) {
           const newIdx =
             historyIdx === -1 ? history.length - 1 : Math.max(0, historyIdx - 1);
@@ -200,8 +243,14 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
         return;
       }
 
-      // Down arrow — history
+      // Down arrow — navigate dropdown or history
       if (key.downArrow) {
+        if (completionItems.length > 0) {
+          setCompletionCursor((prev) =>
+            prev >= completionItems.length - 1 ? 0 : prev + 1
+          );
+          return;
+        }
         if (historyIdx >= 0) {
           const newIdx = historyIdx + 1;
           if (newIdx >= history.length) {
@@ -231,14 +280,18 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
 
       // Ctrl+U — delete to start
       if (key.ctrl && input === "u") {
-        setValue((v) => v.slice(cursor));
+        const newValue = value.slice(cursor);
+        setValue(newValue);
         setCursor(0);
+        updateCompletions(newValue);
         return;
       }
 
       // Ctrl+K — delete to end
       if (key.ctrl && input === "k") {
-        setValue((v) => v.slice(0, cursor));
+        const newValue = value.slice(0, cursor);
+        setValue(newValue);
+        updateCompletions(newValue);
         return;
       }
 
@@ -248,8 +301,10 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
         const trimmed = before.trimEnd();
         const lastSpace = trimmed.lastIndexOf(" ");
         const newCursor = lastSpace === -1 ? 0 : lastSpace + 1;
-        setValue(value.slice(0, newCursor) + value.slice(cursor));
+        const newValue = value.slice(0, newCursor) + value.slice(cursor);
+        setValue(newValue);
         setCursor(newCursor);
+        updateCompletions(newValue);
         return;
       }
 
@@ -264,8 +319,10 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
 
       // Regular character input
       if (input && !key.ctrl && !key.meta) {
-        setValue((v) => v.slice(0, cursor) + input + v.slice(cursor));
+        const newValue = value.slice(0, cursor) + input + value.slice(cursor);
+        setValue(newValue);
         setCursor((c) => c + input.length);
+        updateCompletions(newValue);
       }
     },
     { isActive }
@@ -308,6 +365,23 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
     ? multiLineBuffer.split("\n")
     : [];
 
+  // Dropdown viewport
+  const MAX_VISIBLE = 8;
+  const dropdownOpen = completionItems.length > 0;
+  let dropdownStart = 0;
+  if (dropdownOpen && completionItems.length > MAX_VISIBLE) {
+    dropdownStart = Math.max(
+      0,
+      Math.min(
+        completionCursor - Math.floor(MAX_VISIBLE / 2),
+        completionItems.length - MAX_VISIBLE,
+      ),
+    );
+  }
+  const dropdownEnd = dropdownOpen
+    ? Math.min(dropdownStart + MAX_VISIBLE, completionItems.length)
+    : 0;
+
   return (
     <Box flexDirection="column">
       <Text>{separator}</Text>
@@ -315,6 +389,25 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
         <Text key={i}>{i === 0 ? prompt : chalk.dim("... ")}{chalk.dim(line)}</Text>
       ))}
       <Text>{promptPrefix}{displayValue}</Text>
+      {dropdownOpen && (
+        <Box flexDirection="column" marginLeft={2}>
+          {dropdownStart > 0 && <Text>{chalk.dim("  \u2191 more")}</Text>}
+          {completionItems.slice(dropdownStart, dropdownEnd).map((item, i) => {
+            const idx = dropdownStart + i;
+            const isHighlighted = idx === completionCursor;
+            return (
+              <Text key={item}>
+                {isHighlighted
+                  ? chalk.bgBlue.white(`\u276F ${item}`)
+                  : chalk.dim(`  ${item}`)}
+              </Text>
+            );
+          })}
+          {dropdownEnd < completionItems.length && (
+            <Text>{chalk.dim("  \u2193 more")}</Text>
+          )}
+        </Box>
+      )}
       <Text>{separator}</Text>
     </Box>
   );
