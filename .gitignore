@@ -10,3 +10,4 @@ dist/
 .claude-code-core/
 .openharness/
 logs/
+.DS_Store
