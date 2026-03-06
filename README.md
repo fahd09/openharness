@@ -2,9 +2,7 @@
 
 An extensible, multi-provider AI coding assistant for the terminal. Written in TypeScript with an Ink-based UI, OpenHarness connects to Anthropic Claude, OpenAI, Google Gemini, and any OpenAI-compatible endpoint — giving you 19 built-in tools, 30+ slash commands, custom agents, lifecycle hooks, MCP integration, and a plugin system, all in a single CLI.
 
-<p align="center">
-  <img src="docs/demo.png" alt="OpenHarness demo" width="700">
-</p>
+![OpenHarness demo](docs/demo.png)
 
 ## Highlights
 
