@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env node
 import "dotenv/config"; // Load .env before anything else
 import chalk from "chalk";
 import React, { createRef } from "react";

@@ -1,13 +1,44 @@
 {
   "name": "openharness",
   "version": "0.1.0",
+  "description": "Extensible, multi-provider AI coding assistant for the terminal",
   "type": "module",
   "bin": {
-    "openharness": "./src/index.tsx"
+    "oh": "./dist/index.js",
+    "openharness": "./dist/index.js"
   },
   "scripts": {
     "start": "tsx src/index.tsx",
-    "dev": "tsx watch src/index.tsx"
+    "dev": "tsx watch src/index.tsx",
+    "build": "tsc && cp -r src/prompts dist/prompts",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist/",
+    "src/completions/",
+    ".env.example"
+  ],
+  "keywords": [
+    "ai",
+    "cli",
+    "coding-assistant",
+    "llm",
+    "anthropic",
+    "claude",
+    "openai",
+    "gemini",
+    "terminal",
+    "mcp",
+    "agent"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fahd09/openharness.git"
+  },
+  "homepage": "https://github.com/fahd09/openharness",
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
