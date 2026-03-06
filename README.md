@@ -27,18 +27,19 @@ An extensible, multi-provider AI coding assistant for the terminal. Written in T
 ## Quick Start
 
 ```bash
-# Install dependencies
-npm install
+# Install globally
+npm install -g @alhazmiai/openharness
 
-# Set up environment
-cp .env.example .env
-# Edit .env — add your API key (ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY)
+# Set your API key
+export ANTHROPIC_API_KEY=sk-ant-...
+# Or: export OPENAI_API_KEY=sk-...
+# Or: export GEMINI_API_KEY=...
 
 # Start the interactive REPL
-npm start
+oh
 
 # Or run a one-shot prompt
-npm start -- -p "Explain this codebase"
+oh -p "Explain this codebase"
 ```
 
 ### CLI Options
@@ -58,16 +59,16 @@ npm start -- -p "Explain this codebase"
 
 ```bash
 # Anthropic Claude (default)
-npm start
+oh
 
 # OpenAI
-LLM_PROVIDER=openai npm start -- -m gpt-4o
+LLM_PROVIDER=openai oh -m gpt-4o
 
 # Google Gemini
-LLM_PROVIDER=gemini npm start -- -m gemini-2.5-flash
+LLM_PROVIDER=gemini oh -m gemini-2.5-flash
 
 # Local Ollama
-LLM_PROVIDER=openai-compat OPENAI_BASE_URL=http://localhost:11434/v1 npm start -- -m llama3.2
+LLM_PROVIDER=openai-compat OPENAI_BASE_URL=http://localhost:11434/v1 oh -m llama3.2
 ```
 
 ## Built-in Tools
@@ -317,23 +318,28 @@ src/
 
 - **Anthropic-shaped internals** — All message types follow the Anthropic SDK format. Other providers translate at the API boundary.
 - **Async generator tools** — Tools yield `progress` and `result` events, enabling real-time streaming UI.
-- **No build step** — `tsx` runs TypeScript directly. No compilation or bundling required.
+- **No build step for dev** — `tsx` runs TypeScript directly during development. `tsc` compiles to `dist/` for npm distribution.
 - **Zero-dependency rendering** — Syntax highlighting, markdown tables, hyperlinks, and diffs are all built-in with chalk.
 - **Plugin registration layer** — Plugins orchestrate startup loading. Implementation lives in dedicated directories (`commands/`, `tools/`, `core/`).
 
 ## Development
 
 ```bash
+git clone https://github.com/fahd09/openharness.git
+cd openharness
+npm install
+cp .env.example .env   # Add your API key(s)
+
 npm start              # Interactive REPL
 npm run dev            # Watch mode (tsx watch)
 npm start -- -p "..."  # One-shot mode
+npm run build          # Compile to dist/
 npx tsc --noEmit       # Type-check
 ```
 
 ## Requirements
 
 - **Node.js 18+**
-- **TypeScript 5.6+**
 - API key for at least one provider
 - **ripgrep** (`rg`) — required for the Grep tool
 - **git** — required for repo operations
