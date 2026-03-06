@@ -1,5 +1,5 @@
 {
-  "name": "openharness",
+  "name": "@alhazmiai/openharness",
   "version": "0.1.0",
   "description": "Extensible, multi-provider AI coding assistant for the terminal",
   "type": "module",
