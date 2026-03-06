@@ -1,6 +1,6 @@
 {
   "name": "@alhazmiai/openharness",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Extensible, multi-provider AI coding assistant for the terminal",
   "type": "module",
   "bin": {
