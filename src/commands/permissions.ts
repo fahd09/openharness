@@ -21,9 +21,23 @@ export const permissionsCommand: SlashCommand = {
   async execute(args: string, ctx: CommandContext): Promise<boolean> {
     const output = ctx.output ?? console.log;
     const parts = args.trim().split(/\s+/);
-    const subcommand = parts[0]?.toLowerCase() || "list";
+    const subcommand = parts[0]?.toLowerCase() || "";
     const pattern = parts.slice(1).join(" ");
     const settingsPath = getClaudeProjectSettingsPath(ctx.cwd);
+
+    // Interactive mode when no subcommand (or "list" with no args)
+    if ((subcommand === "" || subcommand === "list") && ctx.dispatch) {
+      const toolNames = ctx.toolRegistry.getAll().map((t) => t.name).sort();
+      await new Promise<void>((resolve) => {
+        ctx.dispatch!({
+          type: "PERMISSION_MANAGER_START",
+          cwd: ctx.cwd,
+          toolNames,
+          resolve,
+        });
+      });
+      return true;
+    }
 
     if (subcommand === "list" || subcommand === "") {
       const perms = await loadProjectPermissions(ctx.cwd);

@@ -4,3 +4,9 @@ dist/
 *.js
 *.d.ts
 *.js.map
+
+# Config/runtime directories
+.claude/
+.claude-code-core/
+.openharness/
+logs/

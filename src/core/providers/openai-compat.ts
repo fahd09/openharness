@@ -29,6 +29,11 @@ import type {
 } from "./base.js";
 import type { AssistantMessage, StopReason, SystemPrompt } from "../types.js";
 import { uuid, timestamp } from "../../utils.js";
+import {
+  getOpenAIModelCaps,
+  getAlternateTokenParam,
+  type ModelParamCaps,
+} from "../model-params.js";
 
 // ── Config ───────────────────────────────────────────────────────
 
@@ -55,6 +60,64 @@ function getApiKey(): string {
     throw new Error("OPENAI_API_KEY not set");
   }
   return key;
+}
+
+// ── Model capability helpers ─────────────────────────────────────
+
+/** True when the configured endpoint is official OpenAI or Azure OpenAI. */
+function isOfficialOpenAI(): boolean {
+  const url = getBaseUrl().toLowerCase();
+  return url.includes("api.openai.com") || url.includes("openai.azure.com");
+}
+
+/**
+ * Session-level cache for learned parameter overrides.
+ * When error-based fallback discovers that a model needs a different token
+ * param, the override is cached here so subsequent requests skip the
+ * initial failed attempt.
+ */
+const paramOverrideCache = new Map<string, Partial<ModelParamCaps>>();
+
+/** Merge static config + cached runtime overrides. */
+function getEffectiveCaps(model: string): ModelParamCaps {
+  const base = getOpenAIModelCaps(model, isOfficialOpenAI());
+  const override = paramOverrideCache.get(model);
+  return override ? { ...base, ...override } : base;
+}
+
+/**
+ * Build the request body with the correct parameter names for the model.
+ */
+function buildOpenAIBody(
+  model: string,
+  maxTokens: number,
+  extra: Record<string, unknown> = {}
+): Record<string, unknown> {
+  const caps = getEffectiveCaps(model);
+  const body: Record<string, unknown> = {
+    model,
+    [caps.tokenParam]: maxTokens,
+    ...extra,
+  };
+  return body;
+}
+
+/**
+ * Try to extract a rejected parameter name from an OpenAI 400 error body.
+ * Returns the param name if found, or null.
+ *
+ * Known error patterns:
+ *   "Unsupported parameter: 'max_tokens'"
+ *   "Unknown parameter: 'max_completion_tokens'"
+ */
+function parseParamRejection(
+  errorBody: string
+): "max_tokens" | "max_completion_tokens" | null {
+  const match = errorBody.match(
+    /(?:unsupported|unknown|invalid)\s+parameter[:\s]*['"`]?(max_tokens|max_completion_tokens)['"`]?/i
+  );
+  if (!match) return null;
+  return match[1] as "max_tokens" | "max_completion_tokens";
 }
 
 // ── OpenAI types (minimal, for our use) ──────────────────────────
@@ -278,17 +341,16 @@ export class OpenAICompatProvider implements LLMProvider {
     const messages = toOpenAIMessages(params.messages, params.system);
     const tools = toOpenAITools(params.tools);
 
-    const body: Record<string, unknown> = {
-      model: params.model,
+    const extraFields: Record<string, unknown> = {
       messages,
-      max_tokens: params.maxTokens,
       stream: true,
       stream_options: { include_usage: true },
     };
-
     if (tools.length > 0) {
-      body.tools = tools;
+      extraFields.tools = tools;
     }
+
+    let body = buildOpenAIBody(params.model, params.maxTokens, extraFields);
 
     // Wire abort signal
     const controller = new AbortController();
@@ -311,7 +373,7 @@ export class OpenAICompatProvider implements LLMProvider {
       headers["Authorization"] = `Bearer ${apiKey}`;
     }
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    let response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
@@ -319,16 +381,52 @@ export class OpenAICompatProvider implements LLMProvider {
     });
 
     if (!response.ok) {
-      const errorBody = await response.text().catch(() => "");
-      const error = new Error(
-        `OpenAI API ${response.status}: ${errorBody.slice(0, 500)}`
-      ) as Error & { status: number; headers: Record<string, string> };
-      error.status = response.status;
-      // Extract retry-after header for retry logic
-      error.headers = {};
-      const retryAfter = response.headers.get("retry-after");
-      if (retryAfter) error.headers["retry-after"] = retryAfter;
-      throw error;
+      const errorText = await response.text().catch(() => "");
+
+      // Layer 3: error-based fallback for rejected token param
+      if (response.status === 400) {
+        const rejected = parseParamRejection(errorText);
+        if (rejected) {
+          const alt = getAlternateTokenParam(rejected);
+          // Cache the override so future requests use the right param
+          paramOverrideCache.set(params.model, { tokenParam: alt });
+          // Rebuild body with corrected param and retry once
+          body = buildOpenAIBody(params.model, params.maxTokens, extraFields);
+          response = await fetch(`${baseUrl}/chat/completions`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+          if (!response.ok) {
+            const retryError = await response.text().catch(() => "");
+            const error = new Error(
+              `OpenAI API ${response.status}: ${retryError.slice(0, 500)}`
+            ) as Error & { status: number; headers: Record<string, string> };
+            error.status = response.status;
+            error.headers = {};
+            const retryAfter = response.headers.get("retry-after");
+            if (retryAfter) error.headers["retry-after"] = retryAfter;
+            throw error;
+          }
+        } else {
+          const error = new Error(
+            `OpenAI API ${response.status}: ${errorText.slice(0, 500)}`
+          ) as Error & { status: number; headers: Record<string, string> };
+          error.status = response.status;
+          error.headers = {};
+          throw error;
+        }
+      } else {
+        const error = new Error(
+          `OpenAI API ${response.status}: ${errorText.slice(0, 500)}`
+        ) as Error & { status: number; headers: Record<string, string> };
+        error.status = response.status;
+        error.headers = {};
+        const retryAfter = response.headers.get("retry-after");
+        if (retryAfter) error.headers["retry-after"] = retryAfter;
+        throw error;
+      }
     }
 
     if (!response.body) {
@@ -453,22 +551,51 @@ export class OpenAICompatProvider implements LLMProvider {
       headers["Authorization"] = `Bearer ${apiKey}`;
     }
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    let body = buildOpenAIBody(params.model, params.maxTokens, {
+      messages: params.messages,
+    });
+
+    let response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        model: params.model,
-        messages: params.messages,
-        max_tokens: params.maxTokens,
-      }),
+      body: JSON.stringify(body),
       signal: params.signal,
     });
 
     if (!response.ok) {
-      const errorBody = await response.text().catch(() => "");
-      throw new Error(
-        `OpenAI API ${response.status}: ${errorBody.slice(0, 500)}`
-      );
+      const errorText = await response.text().catch(() => "");
+
+      // Error-based fallback for rejected token param
+      if (response.status === 400) {
+        const rejected = parseParamRejection(errorText);
+        if (rejected) {
+          const alt = getAlternateTokenParam(rejected);
+          paramOverrideCache.set(params.model, { tokenParam: alt });
+          body = buildOpenAIBody(params.model, params.maxTokens, {
+            messages: params.messages,
+          });
+          response = await fetch(`${baseUrl}/chat/completions`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+            signal: params.signal,
+          });
+          if (!response.ok) {
+            const retryError = await response.text().catch(() => "");
+            throw new Error(
+              `OpenAI API ${response.status}: ${retryError.slice(0, 500)}`
+            );
+          }
+        } else {
+          throw new Error(
+            `OpenAI API ${response.status}: ${errorText.slice(0, 500)}`
+          );
+        }
+      } else {
+        throw new Error(
+          `OpenAI API ${response.status}: ${errorText.slice(0, 500)}`
+        );
+      }
     }
 
     const data = (await response.json()) as OpenAIResponse;

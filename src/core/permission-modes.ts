@@ -13,6 +13,7 @@
  * Configurable via --permission-mode CLI flag or CLAUDE_CODE_PERMISSION_MODE env var.
  */
 
+import { join } from "path";
 import type { PermissionRequest, PermissionResult } from "../tools/tool-registry.js";
 import { loadClaudeSettings, saveClaudeSettings, getClaudeProjectSettingsPath } from "./claude-compat.js";
 
@@ -416,4 +417,123 @@ export async function resetProjectPermissions(cwd: string): Promise<void> {
     ...settings,
     permissions: { allow: [], deny: [] },
   });
+}
+
+// ── Shared (Workspace) Permission Helpers ──────────────────────────
+
+/**
+ * Path to the workspace-level settings file: <cwd>/.claude/settings.json
+ * (distinct from settings.local.json which is user-local).
+ */
+function getSharedSettingsPath(cwd: string): string {
+  return join(cwd, ".claude", "settings.json");
+}
+
+/**
+ * Load workspace-level permissions from .claude/settings.json.
+ */
+export async function loadSharedProjectPermissions(cwd: string): Promise<ProjectPermissions> {
+  const result: ProjectPermissions = { allow: [], deny: [] };
+
+  const settings = await loadClaudeSettings(getSharedSettingsPath(cwd));
+  if (!settings) return result;
+
+  const permissions = settings.permissions as Record<string, unknown> | undefined;
+  if (!permissions || typeof permissions !== "object") return result;
+
+  if (Array.isArray(permissions.allow)) {
+    result.allow = permissions.allow.filter((p): p is string => typeof p === "string");
+  }
+  if (Array.isArray(permissions.deny)) {
+    result.deny = permissions.deny.filter((p): p is string => typeof p === "string");
+  }
+
+  return result;
+}
+
+/**
+ * Save an allow rule to .claude/settings.json (workspace/shared).
+ */
+export async function saveSharedProjectPermission(cwd: string, pattern: string): Promise<void> {
+  const settingsPath = getSharedSettingsPath(cwd);
+  const settings = (await loadClaudeSettings(settingsPath)) ?? {};
+
+  const permissions = (typeof settings.permissions === "object" && settings.permissions !== null)
+    ? (settings.permissions as Record<string, unknown>)
+    : {};
+
+  const allow = Array.isArray(permissions.allow)
+    ? (permissions.allow as string[])
+    : [];
+
+  if (allow.includes(pattern)) return;
+
+  await saveClaudeSettings(settingsPath, {
+    ...settings,
+    permissions: {
+      ...permissions,
+      allow: [...allow, pattern],
+    },
+  });
+}
+
+/**
+ * Save a deny rule to .claude/settings.json (workspace/shared).
+ */
+export async function saveSharedProjectDenyPermission(cwd: string, pattern: string): Promise<void> {
+  const settingsPath = getSharedSettingsPath(cwd);
+  const settings = (await loadClaudeSettings(settingsPath)) ?? {};
+
+  const permissions = (typeof settings.permissions === "object" && settings.permissions !== null)
+    ? (settings.permissions as Record<string, unknown>)
+    : {};
+
+  const deny = Array.isArray(permissions.deny)
+    ? (permissions.deny as string[])
+    : [];
+
+  if (deny.includes(pattern)) return;
+
+  await saveClaudeSettings(settingsPath, {
+    ...settings,
+    permissions: {
+      ...permissions,
+      deny: [...deny, pattern],
+    },
+  });
+}
+
+/**
+ * Remove a permission pattern from .claude/settings.json (workspace/shared).
+ */
+export async function removeSharedProjectPermission(
+  cwd: string,
+  pattern: string,
+  list: "allow" | "deny"
+): Promise<boolean> {
+  const settingsPath = getSharedSettingsPath(cwd);
+  const settings = (await loadClaudeSettings(settingsPath)) ?? {};
+
+  const permissions = (typeof settings.permissions === "object" && settings.permissions !== null)
+    ? (settings.permissions as Record<string, unknown>)
+    : {};
+
+  const arr = Array.isArray(permissions[list])
+    ? (permissions[list] as string[])
+    : [];
+
+  const idx = arr.indexOf(pattern);
+  if (idx < 0) return false;
+
+  const updated = [...arr];
+  updated.splice(idx, 1);
+
+  await saveClaudeSettings(settingsPath, {
+    ...settings,
+    permissions: {
+      ...permissions,
+      [list]: updated,
+    },
+  });
+  return true;
 }

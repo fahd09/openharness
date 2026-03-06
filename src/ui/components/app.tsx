@@ -27,6 +27,7 @@ import { SessionSelector } from "./session-selector.js";
 import { ListSelector } from "./list-selector.js";
 import { FileSelector } from "./file-selector.js";
 import { WizardDialog } from "./wizard-dialog.js";
+import { PermissionManager } from "./permission-manager.js";
 
 // ── App Handle (exposed to index.tsx) ──────────────────────────────
 
@@ -74,6 +75,7 @@ export const App = forwardRef<AppHandle, AppProps>(function App(
   const isListSelect = state.phase === "list-select";
   const isFileSelect = state.phase === "file-select";
   const isWizard = state.phase === "wizard";
+  const isPermissionManager = state.phase === "permission-manager";
 
   // Keyboard handling during processing (not during permission prompts)
   useInput((_input, key) => {
@@ -230,8 +232,20 @@ export const App = forwardRef<AppHandle, AppProps>(function App(
         />
       )}
 
+      {/* Region C5: permission manager */}
+      {isPermissionManager && (
+        <PermissionManager
+          cwd={state.permissionManagerCwd}
+          toolNames={state.permissionManagerToolNames}
+          onClose={() => {
+            state.permissionManagerResolve?.();
+            dispatch({ type: "PERMISSION_MANAGER_END" });
+          }}
+        />
+      )}
+
       {/* Region D: always-visible input (kept mounted during file-select for state) */}
-      {onSubmit && !isSessionSelect && !isListSelect && !isWizard && (
+      {onSubmit && !isSessionSelect && !isListSelect && !isWizard && !isPermissionManager && (
         <TextInput
           ref={textInputRef}
           onSubmit={onSubmit}

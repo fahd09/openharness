@@ -1,284 +1,137 @@
-# Claude Code Core
+# OpenHarness
 
-A lightweight, extensible AI-powered coding assistant CLI written in TypeScript. Provides interactive terminal access to multiple LLM providers (Anthropic, OpenAI, OpenAI-compatible, Google Gemini) with 19 built-in tools, 30+ slash commands, session management, MCP integration, and a plugin ecosystem — all in ~14,000 lines with zero heavy dependencies.
+An extensible, multi-provider AI coding assistant for the terminal. Written in TypeScript with an Ink-based UI, OpenHarness connects to Anthropic Claude, OpenAI, Google Gemini, and any OpenAI-compatible endpoint — giving you 19 built-in tools, 30+ slash commands, custom agents, lifecycle hooks, MCP integration, and a plugin system, all in a single CLI.
 
-## Supported LLM Providers
+## Highlights
 
-- **Anthropic Claude** (default) — Claude 4 Opus, Claude 4 Sonnet, Claude 4.5 Haiku
-- **OpenAI** — GPT-4o, GPT-4o-mini, GPT-4 Turbo, o1, o3
-- **Google Gemini** — Gemini 2.5 Flash/Pro, Gemini 3 Flash/Pro, Gemini 3.1 Pro
-- **OpenAI-Compatible APIs** — Any OpenAI-compatible endpoint:
-  - Azure OpenAI, Together AI, Groq, Mistral, Qwen
-  - Ollama, LM Studio, vLLM, text-generation-inference (local)
+- **Multi-provider** — Switch between Anthropic, OpenAI, Gemini, or local models (Ollama, LM Studio, vLLM) with one env var
+- **19 built-in tools** — File I/O, shell execution, code search, web search/fetch, subagent tasks, notebooks, and more
+- **30+ slash commands** — Session management, model switching, diagnostics, memory, plan mode, undo, clipboard
+- **Plugin architecture** — Register tools, commands, hooks, and prompt segments through a unified `Plugin` interface
+- **6 extension mechanisms** — Skills, custom agents, hooks, MCP servers, plugins, and prompt overrides — from zero-code markdown to full TypeScript
+- **Session management** — Save, resume, search, tag, and rename conversations
+- **Smart permissions** — 4 modes (default, acceptEdits, bypassPermissions, plan) with pattern-based auto-approval
+- **Extended thinking** — Configurable thinking budgets for Claude and Gemini with toggleable display
+- **Context management** — Auto-compaction at 80% context window; manual `/compact` with preservation instructions
+- **Claude Code compatible** — Read-only import of sessions, memory, commands, MCP configs, hooks, and permissions from `~/.claude/`
 
-## Features
+## Supported Providers
 
-### Core Capabilities
-- **Interactive REPL** with tab completion, multi-line input (backslash continuation), and Escape to clear
-- **One-shot mode** — Execute single prompts with formatted markdown output
-- **19 built-in tools** — Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch, Task (subagents with custom agent support), NotebookEdit, TodoWrite, EnterPlanMode, ExitPlanMode, and more
-- **Session management** — Save, resume, search, tag, rename, and list conversations
-- **Streaming output** — Real-time text + thinking display with syntax-highlighted code blocks
-
-### 30+ Slash Commands
-- **Session**: `/exit`, `/clear`, `/sessions [query]`, `/resume`, `/rename`, `/tag`
-- **Model**: `/model [name]`, `/fast` (toggle haiku), `/thinking [on|off]`, `/output-style`, `/config`
-- **Info**: `/help`, `/cost`, `/status`, `/diff`, `/memory`, `/doctor`, `/hooks`, `/agents`
-- **Actions**: `/compact [instructions]`, `/plan`, `/init`, `/copy`, `/undo`, `/skills`, `/plugin`, `/feedback`, `/login`
-
-### Advanced Features
-- **Smart permissions** — 4 modes: default, acceptEdits, bypassPermissions, plan
-- **Context management** — Auto-compaction at 80% context window; manual `/compact` with custom preservation instructions
-- **Extended thinking** — Configurable budget with toggleable display (`/thinking`)
-- **Fast mode** — One-command toggle to faster model variant (`/fast`)
-- **Syntax highlighting** — 15+ languages in code blocks (TS/JS, Python, Rust, Go, Bash, SQL, JSON, YAML, CSS, etc.)
-- **Rich markdown** — Tables with box-drawing borders, clickable hyperlinks (OSC 8), strikethrough
-- **Memory system** — Persistent project-scoped notes with topic files and compaction
-- **File history & undo** — Pre-edit snapshots with `/undo`, auto-cleanup on session end
-- **Cost tracking** — Per-turn display + per-model breakdown via `/cost`
-- **10 lifecycle hooks** — PreToolUse, PostToolUse, PostToolUseFailure, Stop (blockable), SubagentStop, Notification, SessionStart, SessionEnd, UserPromptSubmit, PreCompact — with shell, LLM prompt, and programmatic handlers
-- **Custom agents** — Define domain-specific agents via markdown files with tool restrictions, memory, and scoped hooks
-- **Skills system** — Custom reusable commands via markdown files with `$ARGUMENTS` substitution, `!`command`` preprocessing, fork context, and once-per-session support
-- **MCP integration** — Connect to Model Context Protocol servers (stdio + SSE transports)
-- **Plugin system** — Unified plugin architecture with 4 built-in plugins; register tools, commands, hooks, and prompt segments through a single interface
-- **Claude Code compatibility** — Read-only import of sessions, memory, commands, MCP configs, hooks, and permissions from the official Claude Code CLI (`~/.claude/` and `.claude/`)
-- **Diagnostics** — `/doctor` checks Node.js, API keys, CLI tools, network, MCP servers, plugins
-- **Shell completions** — bash, zsh, and fish completion scripts
-- **Project scaffolding** — `/init` generates CLAUDE.md from detected project type
-- **Clipboard** — `/copy` copies code blocks to clipboard (macOS/Linux/Windows)
+| Provider | Models | Thinking | Caching | Local |
+|----------|--------|----------|---------|-------|
+| **Anthropic Claude** | Opus 4, Sonnet 4, Haiku 4.5 | Budget-based | Automatic | No |
+| **OpenAI** | GPT-4o, GPT-4o-mini, o1, o3 | Internal (o1/o3) | No | No |
+| **Google Gemini** | 2.5 Flash/Pro, 3 Flash/Pro, 3.1 Pro | Budget-based | No | No |
+| **OpenAI-Compatible** | Any (Ollama, LM Studio, Groq, Together, Mistral, etc.) | No | No | Yes |
 
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
+# Install dependencies
 npm install
 
-# 2. Set up environment
+# Set up environment
 cp .env.example .env
-# Edit .env: ANTHROPIC_API_KEY=sk-ant-...
+# Edit .env — add your API key (ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY)
 
-# 3. Start the REPL
+# Start the interactive REPL
 npm start
 
-# 4. Or one-shot
+# Or run a one-shot prompt
 npm start -- -p "Explain this codebase"
-npm start -- -m opus -p "Review this code for security issues"
-```
-
-## Usage
-
-### Interactive Mode
-```
-$ npm start
-
-claude-code-core v0.1.0
-  Model:    claude-sonnet-4-20250514 (anthropic)
-  Mode:     default
-  CWD:      /Users/you/project
-  Branch:   main
-  Session:  a1b2c3d4
-
-  Try:
-    > Explain the architecture of this project
-    > Fix the failing tests in src/
-    > Add input validation to the API endpoints
-
-Type your message. /help for commands. Ctrl+C to interrupt.
-
-❯ _
-```
-
-### One-Shot Mode
-```bash
-# Anthropic Claude (default)
-npm start -- -p "Create a simple Express server"
-npm start -- -m haiku -p "What's in package.json?"
-
-# OpenAI
-LLM_PROVIDER=openai npm start -- -m gpt-4o -p "Create a REST API"
-
-# Google Gemini
-LLM_PROVIDER=gemini npm start -- -m gemini-2.5-flash -p "Create a REST API"
-
-# Local Ollama
-LLM_PROVIDER=openai-compat OPENAI_BASE_URL=http://localhost:11434/v1 npm start -- -m llama3.2
 ```
 
 ### CLI Options
 
 | Option | Description |
 |--------|-------------|
-| `-m, --model <model>` | Model (opus/sonnet/haiku, or full ID like gpt-4o) |
-| `-p, --prompt <text>` | One-shot mode: run prompt and exit |
+| `-m, --model <model>` | Model alias (`opus`, `sonnet`, `haiku`) or full ID (`gpt-4o`, `gemini-2.5-flash`) |
+| `-p, --prompt <text>` | One-shot mode — run prompt and exit |
 | `--max-turns <n>` | Maximum agentic turns per interaction |
-| `--thinking-budget <n>` | Extended thinking budget in tokens (min 1024, Claude only) |
-| `--permission-mode <mode>` | default / acceptEdits / bypassPermissions / plan |
-| `-r, --resume <id>` | Resume a previous session by ID |
+| `--thinking-budget <n>` | Extended thinking budget in tokens (min 1024) |
+| `--permission-mode <mode>` | `default` / `acceptEdits` / `bypassPermissions` / `plan` |
+| `-r, --resume <id>` | Resume a previous session |
 | `--system-prompt <text>` | Custom system prompt override |
 | `-v, --verbose` | Show detailed token usage and costs |
 
-### Slash Commands Reference
+### Provider Selection
 
-**Session Management:**
-| Command | Description |
-|---------|-------------|
-| `/exit`, `/quit` | Save session and exit |
-| `/clear` | Clear conversation history |
-| `/sessions [query]`, `/history` | List or search saved sessions |
-| `/resume [id]`, `/r` | Resume a previous session |
-| `/rename <name>` | Rename the current session |
-| `/tag <tag>` | Add a tag to the current session |
+```bash
+# Anthropic Claude (default)
+npm start
 
-**Model & Configuration:**
-| Command | Description |
-|---------|-------------|
-| `/model [name]`, `/m` | View available models or switch (interactive menu if no arg) |
-| `/fast` | Toggle fast mode (sonnet ↔ haiku, gpt-4o ↔ gpt-4o-mini) |
-| `/thinking [on\|off]` | Toggle extended thinking display |
-| `/output-style [mode]`, `/style` | Set response style (concise/detailed/markdown/plain) |
-| `/config`, `/settings` | View provider, model, API keys, config file locations |
+# OpenAI
+LLM_PROVIDER=openai npm start -- -m gpt-4o
 
-**Information:**
-| Command | Description |
-|---------|-------------|
-| `/help`, `/h`, `/?` | Show all commands grouped by category |
-| `/cost` | Per-model token usage and cost breakdown |
-| `/status` | Session overview: model, context usage, cost, files changed |
-| `/diff` | File changes made during this session (with +/- counts) |
-| `/memory [topics\|compact\|<topic>]` | View/manage persistent memory and topic files |
-| `/doctor` | Environment diagnostics (Node, API, tools, network, MCP, plugins) |
-| `/hooks` | View configured hooks (global + project) |
-| `/agents` | List built-in and custom agents |
+# Google Gemini
+LLM_PROVIDER=gemini npm start -- -m gemini-2.5-flash
 
-**Tools & Actions:**
-| Command | Description |
-|---------|-------------|
-| `/compact [instructions]` | Manually compact context with optional preservation hints |
-| `/plan [description]` | Enter plan mode for structured task planning |
-| `/init` | Generate CLAUDE.md from detected project type |
-| `/copy [number\|all]` | Copy code blocks or full response to clipboard |
-| `/undo [path]` | Revert last file edit from pre-edit snapshot |
-| `/skills` | List loaded custom skill commands |
-| `/plugin list\|install\|enable\|disable` | Manage plugins |
-| `/feedback`, `/bug` | Submit feedback or report a bug |
-| `/login` / `/logout` | Manage authentication tokens |
+# Local Ollama
+LLM_PROVIDER=openai-compat OPENAI_BASE_URL=http://localhost:11434/v1 npm start -- -m llama3.2
+```
 
-## Configuration
+## Built-in Tools
 
-### Environment Variables
+| Tool | Description |
+|------|-------------|
+| `Read` | Read files (text, images, PDFs, notebooks) |
+| `Write` | Create new files |
+| `Edit` | Exact string replacement edits |
+| `Bash` | Execute shell commands |
+| `Glob` | Fast file pattern matching |
+| `Grep` | Content search via ripgrep |
+| `WebSearch` | Web search (Brave or Serper) |
+| `WebFetch` | Fetch and extract content from URLs |
+| `Task` | Spawn subagent tasks (built-in + custom agent types) |
+| `NotebookEdit` | Edit Jupyter notebook cells |
+| `TodoWrite` | Structured task tracking |
+| `EnterPlanMode` / `ExitPlanMode` | Toggle read-only plan mode |
 
-| Variable | Description |
-|----------|-------------|
-| `LLM_PROVIDER` | `anthropic` (default), `openai`, `openai-compat`, or `gemini` |
-| `ANTHROPIC_API_KEY` | **Required** for Anthropic |
-| `OPENAI_API_KEY` | **Required** for OpenAI (optional for local endpoints) |
-| `OPENAI_BASE_URL` | Custom API endpoint for OpenAI-compatible providers |
-| `GEMINI_API_KEY` | **Required** for Gemini (alias: `GOOGLE_API_KEY`) |
-| `BRAVE_SEARCH_API_KEY` | For web search (optional) |
-| `SERPER_API_KEY` | Alternative web search provider (optional) |
-| `CLAUDE_CODE_THINKING_BUDGET` | Extended thinking token budget (Claude only) |
-| `CLAUDE_CODE_MAX_RETRIES` | API retry limit (default: 10) |
-| `CLAUDE_CODE_OUTPUT_STYLE` | Default output style (concise/detailed/markdown/plain) |
-| `API_TIMEOUT_MS` | API timeout in milliseconds (default: 600000) |
+All tools are async generators that yield `progress` (transient UI) and `result` (AI-visible) events, enabling real-time streaming output.
 
-### Config Files
+## Slash Commands
 
-| File | Location | Purpose |
-|------|----------|---------|
-| `CLAUDE.md` | Project root, `.claude/` | Project-specific instructions for the AI |
-| `hooks.json` | `~/.claude-code-core/` or `.claude-code-core/` | Lifecycle hook handlers |
-| `mcp.json` | `~/.claude-code-core/` or project root | MCP server configuration |
-| `settings.json` | `~/.claude-code-core/` | Global settings |
-| `MEMORY.md` | `~/.claude-code-core/projects/{hash}/memory/` | Persistent memory per project |
-| `auth.json` | `~/.claude-code-core/` | Auth tokens (0600 perms) |
-| `*.md` | `~/.claude-code-core/agents/` or `.claude-code-core/agents/` | Custom agent definitions |
-| `*.md` | `~/.claude-code-core/skills/` or `.claude-code-core/skills/` | Custom skill commands |
+**Session:** `/exit`, `/clear`, `/sessions [query]`, `/resume [id]`, `/rename <name>`, `/tag <tag>`
 
-> **Claude Code Compatibility:** The following files from the official Claude Code CLI are also discovered (read-only). See [Claude Code Compatibility](#claude-code-compatibility) for details.
+**Model:** `/model [name]`, `/fast`, `/thinking [on|off]`, `/output-style [mode]`, `/config`
 
-| File | Location | Purpose |
-|------|----------|---------|
-| `*.jsonl` | `~/.claude/projects/{dirName}/` | Session transcripts (JSONL format) |
-| `MEMORY.md` | `~/.claude/projects/{dirName}/memory/` | Project memory (fallback) |
-| `*.md` | `<cwd>/.claude/commands/` | Custom slash commands |
-| `mcp.json` | `~/.claude/` or `<cwd>/.claude/` | MCP server configuration |
-| `settings.local.json` | `<cwd>/.claude/` | Hooks and tool permissions |
+**Info:** `/help`, `/cost`, `/status`, `/diff`, `/memory`, `/doctor`, `/hooks`, `/agents`
 
-### Skills System
+**Actions:** `/compact [instructions]`, `/plan`, `/init`, `/copy`, `/undo`, `/skills`, `/plugin`, `/feedback`, `/login`
 
-Create custom commands via markdown files in `~/.claude-code-core/skills/` (user) or `.claude-code-core/skills/` (project):
+## Extension Mechanisms
+
+OpenHarness has 6 ways to extend it, from zero-code to full TypeScript:
+
+| Mechanism | Effort | What It Extends | Format |
+|-----------|--------|-----------------|--------|
+| **Skills** | Zero-code | Slash commands | Markdown files |
+| **Custom Agents** | Zero-code | Subagent types | Markdown files |
+| **Hooks** | Low-code | Lifecycle events | JSON + shell scripts |
+| **MCP Servers** | Medium | External tools | MCP protocol |
+| **Plugins** | TypeScript | Tools, commands, hooks, prompts | TypeScript modules |
+| **Prompt Overrides** | Zero-code | System prompt sections | Markdown files |
+
+### Skills
+
+Create custom slash commands as markdown files in `~/.openharness/skills/` or `.openharness/skills/`:
 
 ```markdown
 ---
 name: commit
-description: Create a git commit with a good commit message
+description: Create a git commit with a good message
 command: /commit
 ---
 
-Please create a git commit for the current staged changes.
+Create a git commit for the current staged changes.
+Write a concise commit message that describes the "why".
 ```
 
-#### Skill Frontmatter Options
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `name` | string | *required* | Skill name |
-| `description` | string | `""` | Short description (shown in system prompt) |
-| `command` | string | *required* | Slash command (e.g., `/commit`) |
-| `context` | `inline\|fork` | `inline` | `fork` delegates to a subagent for isolated execution |
-| `agent` | string | `general-purpose` | Agent type when `context: fork` |
-| `once` | `true\|false` | `false` | Only allow one invocation per session |
-| `disable-model-invocation` | `true\|false` | `false` | Prevent the model from auto-invoking this skill |
-| `user-invocable` | `true\|false` | `true` | Whether the user can invoke via slash command |
-| `allowed-tools` | string (CSV) | all | Restrict tools during execution (e.g., `Read,Grep,Glob`) |
-
-#### `$ARGUMENTS` Substitution
-
-Skills support argument placeholders that are replaced before execution:
-
-```markdown
----
-name: review
-command: /review
----
-
-Review the file at $ARGUMENTS[0] focusing on $ARGUMENTS[1].
-
-Full arguments: $ARGUMENTS
-```
-
-- `$ARGUMENTS` — replaced with the full args string
-- `$ARGUMENTS[0]`, `$ARGUMENTS[1]`, ... — replaced with positional args
-- If no placeholders found and args present, appended as `ARGUMENTS: ...`
-
-#### Shell Command Preprocessing
-
-Skills can inject dynamic data using `` !`command` `` syntax. Commands are executed before the prompt reaches the model:
-
-```markdown
----
-name: deploy
-command: /deploy
-context: fork
----
-
-Deploy the current branch. Here's the current state:
-
-Git status:
-!`git status --short`
-
-Current branch:
-!`git rev-parse --abbrev-ref HEAD`
-
-Last 3 commits:
-!`git log --oneline -3`
-```
-
-Commands run with a 10-second timeout and 1MB buffer. `$ARGUMENTS` substitution applies inside commands too.
+Skills support `$ARGUMENTS` substitution, shell command preprocessing (`` !`git status` ``), forked context execution, agent delegation, tool restrictions, and once-per-session limits.
 
 ### Custom Agents
 
-Define domain-specific agents via markdown files in `~/.claude-code-core/agents/` (user) or `.claude-code-core/agents/` (project). Project agents override user agents with the same name.
+Define domain-specific subagents as markdown files in `~/.openharness/agents/` or `.openharness/agents/`:
 
 ```markdown
 ---
@@ -291,66 +144,29 @@ maxTurns: 10
 memory: project
 ---
 
-You are a database query specialist. You can only run SELECT queries.
-Never modify data. Always explain query results clearly.
+You are a database query specialist. Only run SELECT queries.
+Never modify data. Always explain results clearly.
 ```
 
-#### Agent Frontmatter Options
+Agents support tool restrictions, model selection, persistent memory (user/project/local scope), scoped lifecycle hooks, and fork context. Invoke them via the Task tool or list them with `/agents`.
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `name` | string | *required* | Agent name (used as `subagent_type` in Task tool) |
-| `description` | string | `""` | Short description |
-| `tools` | JSON array | `["*"]` | Allowed tools (e.g., `["Read", "Bash", "Grep"]`) |
-| `disallowedTools` | JSON array | none | Tools to explicitly remove |
-| `model` | string | parent model | Model alias (`opus`, `sonnet`, `haiku`) or full ID |
-| `maxTurns` | number | 30 | Maximum agentic turns |
-| `forkContext` | boolean | `false` | Whether the agent receives parent conversation context |
-| `memory` | `user\|project\|local` | none | Enable persistent memory for this agent |
-| `hooks` | JSON array | none | Agent-scoped lifecycle hooks (see below) |
-| `skills` | JSON array | none | Skills available to this agent |
+### Hooks
 
-#### Agent Memory
+10 lifecycle events with shell command, LLM prompt, and programmatic handlers:
 
-Agents with `memory` configured accumulate knowledge across sessions. Memory is stored as `MEMORY.md` and loaded into the agent's system prompt on each invocation.
+| Event | When | Can Block? |
+|-------|------|------------|
+| `PreToolUse` | Before tool executes | Yes (+ input modification) |
+| `PostToolUse` | After tool succeeds | Context injection |
+| `PostToolUseFailure` | After tool fails | Context injection |
+| `Stop` | Agent wants to stop | Yes (continues loop) |
+| `SubagentStop` | Subagent completes | No |
+| `Notification` | Background notification | No |
+| `UserPromptSubmit` | User submits prompt | Yes |
+| `SessionStart` / `SessionEnd` | Session lifecycle | No |
+| `PreCompact` | Before context compaction | Yes |
 
-| Scope | Location | Shared? |
-|-------|----------|---------|
-| `user` | `~/.claude-code-core/agent-memory/{name}/` | Across all projects |
-| `project` | `<cwd>/.claude-code-core/agent-memory/{name}/` | Within the project |
-| `local` | `<cwd>/.claude-code-core/agent-memory-local/{name}/` | Gitignored, local only |
-
-The agent receives Read/Write/Edit tools automatically when memory is enabled, even if not in its `tools` list.
-
-#### Agent-Scoped Hooks
-
-Agents can define lifecycle hooks in their frontmatter. These hooks are active only while the agent is running and are automatically cleaned up when it finishes.
-
-```markdown
----
-name: linted-coder
-description: Code agent with automatic linting
-hooks: [{"event":"PostToolUse","command":"npx eslint --fix $HOOK_TOOL_NAME","toolFilter":["Write","Edit"]}]
----
-
-You are a code agent. Write clean, well-structured code.
-```
-
-Agent `Stop` hooks are automatically converted to `SubagentStop` hooks (since they apply to the agent, not the parent loop).
-
-#### Using Custom Agents
-
-Custom agents are invoked through the Task tool like built-in agents:
-
-```
-Use the Task tool with subagent_type "db-reader" to query the database.
-```
-
-List all agents with `/agents`.
-
-### Hook System
-
-10 lifecycle events with three handler types: **shell commands**, **LLM prompts**, and **programmatic handlers**. Configure in `hooks.json` (global: `~/.claude-code-core/hooks.json`, project: `.claude-code-core/hooks.json`):
+Configure in `hooks.json` (global or project level):
 
 ```json
 [
@@ -362,126 +178,18 @@ List all agents with `/agents`.
   {
     "event": "Stop",
     "type": "prompt",
-    "prompt": "Check if all tasks are complete given this context: $ARGUMENTS"
+    "prompt": "Are all tasks complete? Context: $ARGUMENTS"
   }
 ]
 ```
 
-#### Hook Events
+The **Stop hook** is a powerful quality gate — it prevents premature stopping by having an LLM verify task completion before the agent loop ends.
 
-| Event | When | Can Block? | Context Fields |
-|-------|------|-----------|----------------|
-| `PreToolUse` | Before a tool executes | Yes (+ `updatedInput`) | `toolName`, `toolInput` |
-| `PostToolUse` | After a tool succeeds | `additionalContext` | `toolName`, `toolInput`, `toolResult` |
-| `PostToolUseFailure` | After a tool fails | `additionalContext` | `toolName`, `toolInput`, `error`, `isInterrupt` |
-| `Stop` | Agent loop wants to stop | Yes (continues loop) | `lastAssistantMessage`, `stopReason` |
-| `SubagentStop` | Subagent completes | No | `agentId`, `lastAssistantMessage`, `stopReason` |
-| `Notification` | Background agent notification | No | `prompt` |
-| `UserPromptSubmit` | User submits a prompt | Yes | `prompt` |
-| `SessionStart` | Session begins | No | `sessionId` |
-| `SessionEnd` | Session ends | No | `sessionId` |
-| `PreCompact` | Before context compaction | Yes | `sessionId` |
-
-#### Hook Handler Types
-
-**Shell command hooks** (default) — Execute a shell command. Context is passed as JSON via stdin. Environment variables `HOOK_EVENT`, `HOOK_TOOL_NAME`, `HOOK_SESSION_ID` are also set.
-
-```json
-{"event": "PreToolUse", "command": "python3 validate_tool.py", "toolFilter": ["Bash"]}
-```
-
-The command's stdout is parsed as JSON. Supported response fields:
-- `{"action": "block", "message": "reason"}` — block the action
-- `{"action": "continue"}` — allow the action
-- `{"action": "modify", "data": {...}}` — modify tool input (backward compat)
-- `{"updatedInput": {...}}` — replace tool input with new values
-- `{"additionalContext": ["extra info"]}` — inject context into conversation
-
-**Prompt hooks** — Evaluate using a fast LLM (default: `claude-haiku-4-5-20251001`). The `$ARGUMENTS` placeholder is replaced with the hook context JSON. The model must respond with `{"ok": true/false, "reason": "..."}`.
-
-```json
-{
-  "event": "Stop",
-  "type": "prompt",
-  "prompt": "Are all tasks in the following context complete? $ARGUMENTS",
-  "model": "claude-haiku-4-5-20251001",
-  "timeout": 10000
-}
-```
-
-Prompt hooks fail-open: on timeout or parse error, they return `{ok: true}`.
-
-**Programmatic hooks** — Register via `registerHook()` in plugins or code:
-
-```typescript
-import { registerHook } from "./core/hooks.js";
-
-registerHook({
-  event: "PreToolUse",
-  handler: async (context) => {
-    if (context.toolName === "Bash" && String(context.toolInput).includes("rm -rf")) {
-      return { action: "block", message: "Dangerous command blocked" };
-    }
-    return { action: "continue" };
-  },
-});
-```
-
-#### Stop Hook (Blockable)
-
-The Stop hook is the most powerful quality gate. When the agent loop wants to stop (end_turn or stop_sequence), the Stop hook fires. If a hook returns `"block"`, the loop injects a continuation message and keeps going.
-
-This prevents the #1 model quality failure mode: premature stopping. A prompt hook like *"are all tasks complete?"* works regardless of model quality.
-
-```json
-[
-  {
-    "event": "Stop",
-    "type": "prompt",
-    "prompt": "Review this assistant response. Are all requested tasks fully complete? Context: $ARGUMENTS"
-  }
-]
-```
-
-A stop guard prevents infinite loops — once a Stop hook blocks, it won't fire again until the model makes a new stop attempt.
-
-Informational (non-blockable) Stop hooks also fire for max_turns, budget_exhausted, and max_tokens stops.
-
-#### `updatedInput` — Runtime Tool Input Modification
-
-PreToolUse hooks can modify tool input before execution. Return `updatedInput` in the hook response:
-
-```bash
-#!/bin/bash
-# prepend-set-e.sh — Auto-add `set -e` to all Bash commands
-INPUT=$(cat)
-COMMAND=$(echo "$INPUT" | jq -r '.toolInput.command')
-echo "{\"updatedInput\": {\"command\": \"set -e\\n$COMMAND\"}}"
-```
-
-```json
-[{"event": "PreToolUse", "command": "bash prepend-set-e.sh", "toolFilter": ["Bash"]}]
-```
-
-The modified input is re-validated against the tool's Zod schema before execution.
-
-#### `additionalContext` — Post-Execution Context Injection
-
-PostToolUse and PostToolUseFailure hooks can inject additional context strings into the conversation. These are appended as user messages after tool results:
-
-```json
-[
-  {
-    "event": "PostToolUseFailure",
-    "command": "echo '{\"additionalContext\": [\"Hint: check file permissions and try again\"]}'",
-    "toolFilter": ["Bash"]
-  }
-]
-```
+**PreToolUse hooks** can modify tool input at runtime via `updatedInput`. **PostToolUse hooks** can inject additional context via `additionalContext`.
 
 ### MCP (Model Context Protocol)
 
-Connect to MCP servers for extended tool capabilities:
+Connect to MCP servers for extended tool capabilities. Supports stdio and SSE transports:
 
 ```json
 {
@@ -496,73 +204,57 @@ Connect to MCP servers for extended tool capabilities:
 }
 ```
 
-Supports **stdio** (child process) and **SSE** (HTTP) transports. Tools auto-registered as `mcp__serverName__toolName`.
+Tools are auto-registered as `mcp__serverName__toolName`. Configuration is discovered from multiple locations (native + Claude Code paths).
 
-### Claude Code Compatibility
+### Plugins
 
-Claude Code Core includes a **read-only compatibility layer** that seamlessly discovers and loads data from the official Claude Code CLI's directories (`~/.claude/` and `<cwd>/.claude/`). This means users who already use Claude Code can access their existing sessions, memory, commands, and settings without any migration. All writes stay in `~/.claude-code-core/` — we never modify `.claude/` directories.
+Register tools, commands, hooks, and prompt segments through a unified interface:
 
-#### Sessions
-
-Claude Code sessions stored as JSONL files in `~/.claude/projects/` are automatically discovered and merged with native sessions. Use `/sessions` to see both, with Claude Code sessions tagged `[cc]`:
-
-```
-/sessions
-  a1b2c3d4  2026-02-21  12 msgs  My native session
-  84a12a2c  2026-02-01   5 msgs  Bank Data Integration [cc]
-```
-
-Resume any Claude Code session by its full UUID:
-```
-/resume 84a12a2c-6135-4504-867e-f6629ba29aab
-```
-
-The JSONL parser streams events line-by-line, collecting `user` and `assistant` messages while skipping internal events (`file-history-snapshot`, `queue-operation`, etc.). If a `sessions-index.json` exists, metadata is loaded from it; otherwise, files are scanned directly.
-
-#### Memory
-
-When loading project memory, `loadMemory()` checks the native path first (`~/.claude-code-core/projects/{hash}/memory/MEMORY.md`), then falls back to Claude Code's path (`~/.claude/projects/{dirName}/memory/MEMORY.md`). If both exist, the native version takes precedence. All writes go to the native path.
-
-#### Commands
-
-Slash commands defined in `<cwd>/.claude/commands/` are loaded alongside native skills. Each `.md` file becomes a command:
-
-- **Filename** becomes the command name: `research.md` -> `/research`
-- **File content** is the prompt template (`$ARGUMENTS` substitution works)
-- Files with YAML frontmatter (`---`) are parsed like native skills
-- Native skills take precedence over Claude Code commands with the same name
-
-Example: if your project has `.claude/commands/deploy.md`, type `/deploy staging` to invoke it.
-
-#### MCP Configuration
-
-MCP server discovery checks these paths in order (last wins for servers with the same name):
-
-1. `~/.claude-code-core/mcp.json` (native user-level)
-2. `~/.claude/mcp.json` (Claude Code user-level)
-3. `<cwd>/.claude-code-core/mcp.json` (native project-level)
-4. `<cwd>/.claude/mcp.json` (Claude Code project-level)
-5. `<cwd>/mcp.json` (project root)
-
-#### Hooks
-
-Hooks from `<cwd>/.claude/settings.local.json` are loaded in addition to native hooks. The `hooks` key should be an object keyed by event name:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      { "command": "echo '{\"action\":\"continue\"}'", "matcher": ["Bash"] }
-    ]
+```typescript
+const myPlugin: Plugin = {
+  name: "my-plugin",
+  version: "1.0.0",
+  async init(ctx) {
+    ctx.registerTool(myTool);
+    ctx.registerCommand(myCommand);
+    ctx.registerHook({ event: "PreToolUse", handler: myHandler });
+    ctx.registerPromptSegment({ name: "my-context", priority: 50, build: () => "..." });
   }
-}
+};
 ```
 
-The `matcher` field maps to `toolFilter` in the native hook system.
+## Configuration
 
-#### Tool Permissions
+### Environment Variables
 
-Project-level permissions from `<cwd>/.claude/settings.local.json` are loaded at startup. Matching tools are auto-approved without prompting the user.
+| Variable | Description |
+|----------|-------------|
+| `LLM_PROVIDER` | `anthropic` (default), `openai`, `openai-compat`, or `gemini` |
+| `ANTHROPIC_API_KEY` | Required for Anthropic |
+| `OPENAI_API_KEY` | Required for OpenAI |
+| `OPENAI_BASE_URL` | Custom endpoint for OpenAI-compatible providers |
+| `GEMINI_API_KEY` | Required for Gemini (alias: `GOOGLE_API_KEY`) |
+| `BRAVE_SEARCH_API_KEY` | For web search (optional) |
+| `SERPER_API_KEY` | Alternative web search provider (optional) |
+| `CLAUDE_CODE_THINKING_BUDGET` | Extended thinking token budget |
+| `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | Max output tokens (default: 16384) |
+| `API_TIMEOUT_MS` | API timeout in ms (default: 600000) |
+
+### Config Files
+
+| File | Location | Purpose |
+|------|----------|---------|
+| `CLAUDE.md` | Project root | Project instructions for the AI |
+| `hooks.json` | `~/.openharness/` or `.openharness/` | Lifecycle hook handlers |
+| `mcp.json` | `~/.openharness/` or project root | MCP server configuration |
+| `settings.json` | `~/.openharness/` | Global settings |
+| `MEMORY.md` | `~/.openharness/projects/{hash}/memory/` | Persistent memory per project |
+| `*.md` | `~/.openharness/agents/` or `.openharness/agents/` | Custom agent definitions |
+| `*.md` | `~/.openharness/skills/` or `.openharness/skills/` | Custom skill commands |
+
+### Tool Permissions
+
+Auto-approve tools with pattern-based permissions in project settings:
 
 ```json
 {
@@ -570,7 +262,6 @@ Project-level permissions from `<cwd>/.claude/settings.local.json` are loaded at
     "allow": [
       "Bash(npm install:*)",
       "Bash(npx tsx:*)",
-      "Bash(python3:*)",
       "WebSearch",
       "WebFetch(domain:docs.example.com)"
     ],
@@ -579,220 +270,81 @@ Project-level permissions from `<cwd>/.claude/settings.local.json` are loaded at
 }
 ```
 
-**Permission pattern syntax:**
+Deny patterns take precedence. Unmatched tools fall through to the interactive prompt.
 
-| Pattern | Matches |
-|---------|---------|
-| `"ToolName"` | Any invocation of that tool |
-| `"Bash(prefix:*)"` | Bash commands starting with `prefix` |
-| `"WebFetch(domain:example.com)"` | WebFetch requests to that domain |
+## Claude Code Compatibility
 
-Deny patterns take precedence over allow patterns. Tools not matching any pattern fall through to the normal permission prompt.
+OpenHarness includes a read-only compatibility layer that discovers and loads data from `~/.claude/` and `<cwd>/.claude/`:
 
-### Shell Completions
+- **Sessions** — Claude Code JSONL sessions appear in `/sessions` tagged `[cc]` and can be resumed
+- **Memory** — Falls back to Claude Code memory when no native memory exists
+- **Commands** — `.claude/commands/*.md` files are loaded as slash commands
+- **MCP** — Claude Code MCP configs are merged with native configs
+- **Hooks** — Hooks from `.claude/settings.local.json` are loaded alongside native hooks
+- **Permissions** — Tool permissions from `.claude/settings.local.json` are respected
 
-```bash
-# Bash — add to ~/.bashrc
-source /path/to/claude-code-core/src/completions/bash.sh
-
-# Zsh — add to ~/.zshrc
-source /path/to/claude-code-core/src/completions/zsh.sh
-
-# Fish — copy to completions directory
-cp src/completions/fish.sh ~/.config/fish/completions/claude-core.fish
-```
-
-## Provider Comparison
-
-| Feature | Anthropic Claude | OpenAI | Google Gemini | OpenAI-Compatible |
-|---------|------------------|---------|---------------|-------------------|
-| Tool Use | Full support | Full support | Full support | Full support |
-| Extended Thinking | Configurable budget | (o1/o3 internal) | Configurable budget | No |
-| Prompt Caching | Automatic | No | No | No |
-| Streaming | Text + thinking | Text only | Text + thinking | Text only |
-| Local/Self-hosted | No | No | No | Yes (Ollama, etc.) |
+All writes stay in `~/.openharness/` — Claude Code directories are never modified.
 
 ## Architecture
 
 ```
-src/                           # ~97 files, ~14,500 lines
-├── index.tsx                  # CLI entry point, REPL loop, Ink UI
+src/
+├── index.tsx                  # CLI entry, REPL loop, Ink UI
 ├── utils.ts                   # Shared utilities
-│
-├── plugins/                   # Registration layer — what gets loaded at startup
-│   ├── index.ts               # Barrel export for all built-in plugins
-│   ├── core-prompt-plugin.ts  # Registers system prompt segments
-│   ├── memory-plugin.ts       # Registers /memory + memory prompt segment
-│   ├── commands-plugin.ts     # Registers 24 slash commands
-│   └── skills-plugin.ts       # Loads skills + /skills command + prompt segment
-│
-├── commands/                  # Implementation layer — 26 slash command files
-│   ├── help.ts                # /help — command listing (needs registry)
-│   ├── session.ts             # /exit, /clear, /sessions
-│   ├── model.ts               # /model — interactive model menu
-│   ├── plugin.ts              # /plugin — manage plugins
-│   └── ...                    # 22 more command files
-│
-├── tools/                     # Implementation layer — 19 tool files
-│   ├── tool-registry.ts       # Registration, permissions, concurrency
-│   ├── read.ts, write.ts, edit.ts, bash.ts
-│   ├── glob.ts, grep.ts, task.ts
-│   ├── web-search.ts, web-fetch.ts
-│   └── all.ts                 # Auto-discovery barrel
-│
-├── prompt/                    # Implementation layer — prompt assembly logic
-│   ├── system-prompt.ts       # Multi-segment prompt builder with cache hints
-│   ├── agent-prompts.ts       # Subagent-specific prompts
-│   └── claude-md.ts           # CLAUDE.md file loader
-│
-├── prompts/                   # Content layer — overridable markdown templates
-│   ├── system-identity.md     # AI identity
-│   ├── system-rules.md        # Behavioral rules
-│   ├── system-tasks.md        # Task guidelines
-│   ├── system-coding.md       # Coding conventions
-│   └── agent-*.md             # Subagent prompts
-│
-├── core/                      # Core runtime
+├── plugins/                   # Registration layer (what gets loaded at startup)
+│   ├── core-prompt-plugin.ts  # System prompt segments
+│   ├── memory-plugin.ts       # /memory + memory prompt
+│   ├── commands-plugin.ts     # All slash commands
+│   └── skills-plugin.ts       # Skill loading + /skills
+├── commands/                  # Slash command implementations
+├── tools/                     # Tool implementations (async generators)
+├── prompt/                    # Prompt assembly with cache hints
+├── prompts/                   # Overridable markdown templates
+├── core/
 │   ├── agent-loop.ts          # Main conversation loop
-│   ├── commands.ts            # CommandRegistry + SlashCommand interface
-│   ├── plugins/               # Plugin framework
-│   │   ├── types.ts           # Plugin, PluginContext, PromptSegmentRegistration
-│   │   ├── manager.ts         # Lifecycle: register, init, get*, enable/disable
-│   │   ├── loader.ts          # Legacy external plugin discovery
-│   │   └── index.ts           # Singleton + barrel
 │   ├── hooks.ts               # 10 lifecycle event hooks
-│   ├── agents.ts              # Custom agent loading
-│   ├── skills.ts              # Custom skill loading
-│   ├── memory.ts              # Persistent memory
 │   ├── session.ts             # Session persistence
 │   ├── context.ts             # Context management, compaction
-│   ├── cost.ts                # Token tracking and cost calculation
-│   ├── providers/             # LLM provider abstraction
-│   │   ├── anthropic.ts, openai-compat.ts, gemini.ts
-│   │   └── index.ts           # Provider factory
-│   └── mcp/                   # Model Context Protocol client
-│       ├── config.ts, transport.ts, client.ts
-│       └── index.ts
-│
-├── ui/                        # Ink-based terminal UI
-│   ├── components/            # React components
-│   ├── state.ts               # Reducer + state management
-│   └── event-bridge.ts        # Agent loop -> UI events
-│
-├── completions/               # Shell completion scripts (bash, zsh, fish)
+│   ├── providers/             # LLM providers (Anthropic, OpenAI, Gemini)
+│   ├── plugins/               # Plugin framework
+│   └── mcp/                   # MCP client
+├── ui/                        # Ink terminal UI components
+├── completions/               # Shell completions (bash, zsh, fish)
 └── lib/                       # Utilities (diff, spinner)
 ```
 
-### Layer Architecture
-
-```
-┌─────────────────────────────────────────────────┐
-│  index.tsx — Startup & REPL                     │
-├─────────────────────────────────────────────────┤
-│  src/plugins/ — Registration layer              │
-│  (what gets loaded: commands, prompts, etc.)     │
-├─────────────┬───────────────┬───────────────────┤
-│ src/commands │  src/tools/   │  src/prompt/      │
-│ (how cmds   │  (how tools   │  (how prompts     │
-│  work)      │   work)       │   are built)      │
-├─────────────┴───────────────┴───────────────────┤
-│  src/core/ — Runtime (agent loop, hooks,        │
-│  sessions, providers, MCP, memory, skills)       │
-└─────────────────────────────────────────────────┘
-```
-
-Plugins are the **registration layer** — they orchestrate what gets loaded at startup. The directories below them (`commands/`, `tools/`, `prompt/`, `core/`) are the **implementation layer** — unchanged, reusable code that plugins delegate to.
-
 ### Key Design Decisions
 
-- **Plugin architecture** — All features register through a unified `Plugin` interface. Built-in plugins handle commands, prompts, memory, and skills. Plugins are a thin registration layer; implementation lives in `src/commands/`, `src/tools/`, `src/core/`.
-- **Anthropic-shaped internals** — All internal message types match the Anthropic SDK format. Providers translate at the API boundary.
-- **Async generator tools** — Tools yield `progress` (transient UI) and `result` (AI-visible). Enables streaming progress display.
-- **No build step** — `tsx` runs TypeScript directly. No compilation, no bundling.
-- **Zero-dependency features** — Syntax highlighting, markdown tables, hyperlinks, and diff formatting all built in-house with chalk. No heavy parser dependencies.
-- **Provider-agnostic** — Switching providers is one env var change. All tools work identically.
-
-### Extensibility
-
-Claude Code Core has 6 extension mechanisms: **Skills** (markdown commands), **Custom Agents** (markdown subagents), **Hooks** (lifecycle events), **MCP Servers** (external tools), **Plugins** (TypeScript modules), and **Prompt Overrides** (markdown templates).
-
-See **[docs/extensibility.md](docs/extensibility.md)** for the full guide.
-
-### Adding New Tools
-
-1. Create `src/tools/your-tool.ts` implementing `Tool`
-2. Export from `src/tools/all.ts`
-
-```typescript
-async *call(input, context) {
-  yield { type: "progress", content: "Working..." };
-  yield { type: "result", content: "Final result" };
-}
-```
-
-Or register tools via a plugin — see [docs/extensibility.md](docs/extensibility.md#plugins).
-
-### Adding New Commands
-
-1. Create `src/commands/your-command.ts` implementing `SlashCommand`
-2. Register in a plugin via `ctx.registerCommand(myCommand)` (see `src/plugins/commands-plugin.ts`)
-
-```typescript
-export const myCommand: SlashCommand = {
-  name: "mycommand",
-  description: "What it does",
-  category: "tools",
-  async execute(args, ctx) {
-    console.log("Hello from /mycommand");
-    return true; // re-prompt
-  },
-};
-```
-
-Or skip TypeScript entirely — create a [Skill](docs/extensibility.md#skills) as a markdown file.
+- **Anthropic-shaped internals** — All message types follow the Anthropic SDK format. Other providers translate at the API boundary.
+- **Async generator tools** — Tools yield `progress` and `result` events, enabling real-time streaming UI.
+- **No build step** — `tsx` runs TypeScript directly. No compilation or bundling required.
+- **Zero-dependency rendering** — Syntax highlighting, markdown tables, hyperlinks, and diffs are all built-in with chalk.
+- **Plugin registration layer** — Plugins orchestrate startup loading. Implementation lives in dedicated directories (`commands/`, `tools/`, `core/`).
 
 ## Development
 
 ```bash
-npm start              # Run interactive REPL
-npm run dev            # Watch mode with hot reload
+npm start              # Interactive REPL
+npm run dev            # Watch mode (tsx watch)
 npm start -- -p "..."  # One-shot mode
-npx tsc --noEmit       # Type-check (no build needed)
+npx tsc --noEmit       # Type-check
 ```
-
-No test framework or linter is configured yet.
 
 ## Requirements
 
-- **Node.js 18+** (ES modules)
+- **Node.js 18+**
 - **TypeScript 5.6+**
-- API key for your chosen provider
-- `ripgrep` (`rg`) — **required** for the Grep tool
+- API key for at least one provider
+- **ripgrep** (`rg`) — required for the Grep tool
+- **git** — required for repo operations
 
-### Recommended CLI Tools
+### Recommended Tools
 
 ```bash
-# Install all at once (macOS)
-brew install ripgrep fd fzf jq yq ast-grep bat git git-delta gh
+# macOS
+brew install ripgrep fd fzf jq gh ast-grep
 ```
-
-| Tool | Purpose | Status |
-|------|---------|--------|
-| `rg` (ripgrep) | Fast regex search. Powers the Grep tool. | **Required** |
-| `git` | Version control. Required for repo operations. | **Required** |
-| `fd` | Fast file finder (gitignore-aware) | Recommended |
-| `fzf` | Fuzzy finder for interactive selection | Recommended |
-| `jq` | JSON processing | Recommended |
-| `gh` | GitHub CLI for PR/issue management | Recommended |
-| `ast-grep` | Syntax-aware code search and refactoring | Recommended |
-| `bat` | Better `cat` with syntax highlighting | Optional |
-| `yq` | YAML/XML processing | Optional |
-| `git-delta` | Enhanced diff output | Optional |
 
 ## License
 
-This project is provided as-is for educational and development purposes.
-
----
-
-*Claude Code Core — ~97 source files, ~14,500 lines of TypeScript. Multi-provider LLM CLI with unified plugin architecture, 19 tools, 30+ commands, custom agents, 10 lifecycle hooks, MCP integration, 6 extension mechanisms, Claude Code compatibility, and developer-friendly controls.*
+MIT

@@ -13,7 +13,7 @@
  * - Ctrl+D to exit
  */
 
-import React, { useState, useCallback, useImperativeHandle, forwardRef } from "react";
+import React, { useState, useCallback, useImperativeHandle, useRef, forwardRef } from "react";
 import { Text, Box, useInput } from "ink";
 import chalk from "chalk";
 
@@ -51,6 +51,53 @@ function highlightMentions(text: string, mentions: string[]): string {
   return result;
 }
 
+// ── Paste collapse helpers ──────────────────────────────────────
+
+interface PastedBlock {
+  text: string;
+  lines: number;
+  num: number;
+}
+
+/** Check if a character is a paste marker (Unicode Private Use Area). */
+function isPasteMarkerChar(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  return code >= 0xE000 && code <= 0xF8FF;
+}
+
+/** Replace paste markers with styled labels, then highlight mentions. */
+function renderWithPastes(
+  text: string,
+  mentions: string[],
+  pasteMap: Map<string, PastedBlock>,
+): string {
+  // First highlight mentions (operates on raw text, won't touch PUA chars)
+  let result = highlightMentions(text, mentions);
+  // Then replace PUA paste markers with styled labels
+  for (const [marker, block] of pasteMap) {
+    if (result.includes(marker)) {
+      const label =
+        block.lines > 1
+          ? `[Pasted text #${block.num} +${block.lines} lines]`
+          : `[Pasted text #${block.num}]`;
+      result = result.split(marker).join(chalk.magenta(label));
+    }
+  }
+  return result;
+}
+
+/** Expand paste markers back to their original text for submission. */
+function expandPasteMarkers(
+  text: string,
+  pasteMap: Map<string, PastedBlock>,
+): string {
+  let result = text;
+  for (const [marker, block] of pasteMap) {
+    result = result.split(marker).join(block.text);
+  }
+  return result;
+}
+
 export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function TextInput(
   {
     onSubmit,
@@ -73,6 +120,10 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
   const [completionItems, setCompletionItems] = useState<string[]>([]);
   const [completionCursor, setCompletionCursor] = useState(0);
 
+  // Paste collapse state — refs to avoid stale closures in useInput
+  const pasteCounterRef = useRef(0);
+  const pasteMapRef = useRef(new Map<string, PastedBlock>());
+
   // Expose insertMention to parent via ref
   useImperativeHandle(ref, () => ({
     insertMention(filePath: string) {
@@ -84,11 +135,7 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
   }), [cursor]);
 
   const submit = useCallback((text: string) => {
-    const fullInput = multiLineBuffer
-      ? multiLineBuffer + "\n" + text
-      : text;
-
-    // Check for backslash continuation
+    // Check for backslash continuation (before expanding pastes)
     if (text.endsWith("\\")) {
       setMultiLineBuffer(
         (multiLineBuffer ? multiLineBuffer + "\n" : "") + text.slice(0, -1)
@@ -98,6 +145,12 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
       setCursor(0);
       return;
     }
+
+    // Expand paste markers back to full text for submission
+    const rawInput = multiLineBuffer
+      ? multiLineBuffer + "\n" + text
+      : text;
+    const fullInput = expandPasteMarkers(rawInput, pasteMapRef.current);
 
     // Submit
     const trimmed = fullInput.trim();
@@ -117,6 +170,8 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
     setValue("");
     setCursor(0);
     setMentions([]);
+    pasteMapRef.current.clear();
+    pasteCounterRef.current = 0;
     onSubmit(fullInput, activeMentions);
   }, [multiLineBuffer, mentions, onSubmit]);
 
@@ -164,6 +219,8 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
         setMultiLineBuffer("");
         setIsMultiLine(false);
         setMentions([]);
+        pasteMapRef.current.clear();
+        pasteCounterRef.current = 0;
         return;
       }
 
@@ -319,10 +376,28 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
 
       // Regular character input
       if (input && !key.ctrl && !key.meta) {
-        const newValue = value.slice(0, cursor) + input + value.slice(cursor);
-        setValue(newValue);
-        setCursor((c) => c + input.length);
-        updateCompletions(newValue);
+        // Detect paste: multi-line or very long single-line input
+        const hasNewlines = input.includes("\n") || input.includes("\r");
+        const isPaste = input.length > 1 && (hasNewlines || input.length > 80);
+
+        if (isPaste) {
+          // Collapse pasted text into a single marker character
+          const num = pasteCounterRef.current + 1;
+          const marker = String.fromCharCode(0xE000 + pasteCounterRef.current);
+          pasteCounterRef.current++;
+          const cleanText = input.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+          const lines = cleanText.split("\n").length;
+          pasteMapRef.current.set(marker, { text: cleanText, lines, num });
+          const newValue = value.slice(0, cursor) + marker + value.slice(cursor);
+          setValue(newValue);
+          setCursor((c) => c + 1);
+          updateCompletions(newValue);
+        } else {
+          const newValue = value.slice(0, cursor) + input + value.slice(cursor);
+          setValue(newValue);
+          setCursor((c) => c + input.length);
+          updateCompletions(newValue);
+        }
       }
     },
     { isActive }
@@ -335,7 +410,7 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
   if (!isActive) {
     // Show current text (dimmed) when inactive — preserves mention visibility
     if (value) {
-      const display = highlightMentions(value, mentions);
+      const display = renderWithPastes(value, mentions, pasteMapRef.current);
       return (
         <Box flexDirection="column">
           <Text>{separator}</Text>
@@ -354,11 +429,27 @@ export const TextInput = forwardRef<TextInputHandle, TextInputProps>(function Te
   const promptPrefix = isMultiLine ? chalk.dim("... ") : prompt;
 
   // Show cursor by inverting the character at cursor position,
-  // with @mentions highlighted in cyan
-  const before = highlightMentions(value.slice(0, cursor), mentions);
+  // with @mentions highlighted in cyan and paste markers as labels
+  const pasteMap = pasteMapRef.current;
+  const before = renderWithPastes(value.slice(0, cursor), mentions, pasteMap);
   const cursorChar = cursor < value.length ? value[cursor] : " ";
-  const after = highlightMentions(value.slice(cursor + 1), mentions);
-  const displayValue = before + chalk.inverse(cursorChar) + after;
+  let cursorDisplay: string;
+  if (isPasteMarkerChar(cursorChar)) {
+    const block = pasteMap.get(cursorChar);
+    if (block) {
+      const label =
+        block.lines > 1
+          ? `[Pasted text #${block.num} +${block.lines} lines]`
+          : `[Pasted text #${block.num}]`;
+      cursorDisplay = chalk.inverse.magenta(label);
+    } else {
+      cursorDisplay = chalk.inverse(cursorChar);
+    }
+  } else {
+    cursorDisplay = chalk.inverse(cursorChar);
+  }
+  const after = renderWithPastes(value.slice(cursor + 1), mentions, pasteMap);
+  const displayValue = before + cursorDisplay + after;
 
   // Build buffer lines for multi-line display
   const bufferLines = isMultiLine && multiLineBuffer

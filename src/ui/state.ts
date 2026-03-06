@@ -11,7 +11,7 @@ import type { ListItem } from "./components/list-selector.js";
 
 // ── Types ──────────────────────────────────────────────────────────
 
-export type AppPhase = "input" | "processing" | "permission" | "question" | "session-select" | "list-select" | "file-select" | "wizard";
+export type AppPhase = "input" | "processing" | "permission" | "question" | "session-select" | "list-select" | "file-select" | "wizard" | "permission-manager";
 
 // ── Wizard Step Types ───────────────────────────────────────────────
 
@@ -164,6 +164,11 @@ export interface AppState {
   wizardTitle: string;
   wizardResolve: ((result: string | string[] | null) => void) | null;
 
+  // Permission manager
+  permissionManagerCwd: string;
+  permissionManagerToolNames: string[];
+  permissionManagerResolve: (() => void) | null;
+
   // Turn summary (shown after each assistant turn)
   turnSummary: TurnSummary | null;
 
@@ -202,6 +207,9 @@ export function createInitialState(): AppState {
     wizardStep: null,
     wizardTitle: "",
     wizardResolve: null,
+    permissionManagerCwd: "",
+    permissionManagerToolNames: [],
+    permissionManagerResolve: null,
     turnSummary: null,
     tasks: [],
     agents: [],
@@ -247,6 +255,9 @@ export type AppAction =
   // Wizard
   | { type: "WIZARD_STEP"; step: WizardStep; title: string; resolve: (result: string | string[] | null) => void }
   | { type: "WIZARD_END" }
+  // Permission manager
+  | { type: "PERMISSION_MANAGER_START"; cwd: string; toolNames: string[]; resolve: () => void }
+  | { type: "PERMISSION_MANAGER_END" }
   // Phase 2
   | { type: "TASK_UPDATE"; task: TaskItem }
   | { type: "AGENT_UPDATE"; agent: AgentInfo }
@@ -583,6 +594,25 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       }
       return { ...state, expandedView: next };
     }
+
+    // Permission manager
+    case "PERMISSION_MANAGER_START":
+      return {
+        ...state,
+        phase: "permission-manager",
+        permissionManagerCwd: action.cwd,
+        permissionManagerToolNames: action.toolNames,
+        permissionManagerResolve: action.resolve,
+      };
+
+    case "PERMISSION_MANAGER_END":
+      return {
+        ...state,
+        phase: "input",
+        permissionManagerCwd: "",
+        permissionManagerToolNames: [],
+        permissionManagerResolve: null,
+      };
 
     // Wizard
     case "WIZARD_STEP":
